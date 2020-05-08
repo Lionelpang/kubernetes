@@ -396,7 +396,7 @@ func (r *RemoteRuntimeService) Attach(req *runtimeapi.AttachRequest) (*runtimeap
 
 	if resp.Url == "" {
 		errorMessage := "URL is not set"
-		klog.Errorf("Exec failed: %s", errorMessage)
+		klog.Errorf("Attach failed: %s", errorMessage)
 		return nil, errors.New(errorMessage)
 	}
 	return resp, nil
@@ -415,7 +415,7 @@ func (r *RemoteRuntimeService) PortForward(req *runtimeapi.PortForwardRequest) (
 
 	if resp.Url == "" {
 		errorMessage := "URL is not set"
-		klog.Errorf("Exec failed: %s", errorMessage)
+		klog.Errorf("PortForward failed: %s", errorMessage)
 		return nil, errors.New(errorMessage)
 	}
 
@@ -473,7 +473,7 @@ func (r *RemoteRuntimeService) ContainerStats(containerID string) (*runtimeapi.C
 	})
 	if err != nil {
 		if r.logReduction.ShouldMessageBePrinted(err.Error(), containerID) {
-			klog.Errorf("ContainerStatus %q from runtime service failed: %v", containerID, err)
+			klog.Errorf("ContainerStats %q from runtime service failed: %v", containerID, err)
 		}
 		return nil, err
 	}

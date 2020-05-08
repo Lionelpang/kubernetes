@@ -102,7 +102,7 @@ func (pl *CSILimits) Filter(ctx context.Context, _ *framework.CycleState, pod *v
 	}
 
 	attachedVolumes := make(map[string]string)
-	for _, existingPod := range nodeInfo.Pods() {
+	for _, existingPod := range nodeInfo.Pods {
 		if err := pl.filterAttachableVolumes(csiNode, existingPod.Pod.Spec.Volumes, existingPod.Pod.Namespace, attachedVolumes); err != nil {
 			return framework.NewStatus(framework.Error, err.Error())
 		}
@@ -110,10 +110,8 @@ func (pl *CSILimits) Filter(ctx context.Context, _ *framework.CycleState, pod *v
 
 	attachedVolumeCount := map[string]int{}
 	for volumeUniqueName, volumeLimitKey := range attachedVolumes {
-		if _, ok := newVolumes[volumeUniqueName]; ok {
-			// Don't count single volume used in multiple pods more than once
-			delete(newVolumes, volumeUniqueName)
-		}
+		// Don't count single volume used in multiple pods more than once
+		delete(newVolumes, volumeUniqueName)
 		attachedVolumeCount[volumeLimitKey]++
 	}
 
@@ -268,7 +266,7 @@ func (pl *CSILimits) getCSIDriverInfoFromSC(csiNode *storagev1.CSINode, pvc *v1.
 }
 
 // NewCSI initializes a new plugin and returns it.
-func NewCSI(_ *runtime.Unknown, handle framework.FrameworkHandle) (framework.Plugin, error) {
+func NewCSI(_ runtime.Object, handle framework.FrameworkHandle) (framework.Plugin, error) {
 	informerFactory := handle.SharedInformerFactory()
 	pvLister := informerFactory.Core().V1().PersistentVolumes().Lister()
 	pvcLister := informerFactory.Core().V1().PersistentVolumeClaims().Lister()
@@ -286,7 +284,7 @@ func NewCSI(_ *runtime.Unknown, handle framework.FrameworkHandle) (framework.Plu
 
 func getVolumeLimits(nodeInfo *framework.NodeInfo, csiNode *storagev1.CSINode) map[v1.ResourceName]int64 {
 	// TODO: stop getting values from Node object in v1.18
-	nodeVolumeLimits := nodeInfo.VolumeLimits()
+	nodeVolumeLimits := volumeLimits(nodeInfo)
 	if csiNode != nil {
 		for i := range csiNode.Spec.Drivers {
 			d := csiNode.Spec.Drivers[i]

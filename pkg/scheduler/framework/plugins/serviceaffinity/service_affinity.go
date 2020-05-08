@@ -24,7 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	corelisters "k8s.io/client-go/listers/core/v1"
-	schedulerv1alpha2 "k8s.io/kube-scheduler/config/v1alpha2"
+	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/helper"
 	framework "k8s.io/kubernetes/pkg/scheduler/framework/v1alpha1"
 )
@@ -63,13 +63,12 @@ func (s *preFilterState) Clone() framework.StateData {
 }
 
 // New initializes a new plugin and returns it.
-func New(plArgs *runtime.Unknown, handle framework.FrameworkHandle) (framework.Plugin, error) {
-	args := schedulerv1alpha2.ServiceAffinityArgs{}
-	if err := framework.DecodeInto(plArgs, &args); err != nil {
+func New(plArgs runtime.Object, handle framework.FrameworkHandle) (framework.Plugin, error) {
+	args, err := getArgs(plArgs)
+	if err != nil {
 		return nil, err
 	}
-	informerFactory := handle.SharedInformerFactory()
-	serviceLister := informerFactory.Core().V1().Services().Lister()
+	serviceLister := handle.SharedInformerFactory().Core().V1().Services().Lister()
 
 	return &ServiceAffinity{
 		sharedLister:  handle.SnapshotSharedLister(),
@@ -78,9 +77,20 @@ func New(plArgs *runtime.Unknown, handle framework.FrameworkHandle) (framework.P
 	}, nil
 }
 
+func getArgs(obj runtime.Object) (config.ServiceAffinityArgs, error) {
+	if obj == nil {
+		return config.ServiceAffinityArgs{}, nil
+	}
+	ptr, ok := obj.(*config.ServiceAffinityArgs)
+	if !ok {
+		return config.ServiceAffinityArgs{}, fmt.Errorf("want args to be of type ServiceAffinityArgs, got %T", obj)
+	}
+	return *ptr, nil
+}
+
 // ServiceAffinity is a plugin that checks service affinity.
 type ServiceAffinity struct {
-	args          schedulerv1alpha2.ServiceAffinityArgs
+	args          config.ServiceAffinityArgs
 	sharedLister  framework.SharedLister
 	serviceLister corelisters.ServiceLister
 }
@@ -104,13 +114,13 @@ func (pl *ServiceAffinity) createPreFilterState(pod *v1.Pod) (*preFilterState, e
 		return nil, fmt.Errorf("listing pod services: %v", err.Error())
 	}
 	selector := createSelectorFromLabels(pod.Labels)
-	allMatches, err := pl.sharedLister.Pods().List(selector)
-	if err != nil {
-		return nil, fmt.Errorf("listing pods: %v", err.Error())
-	}
 
 	// consider only the pods that belong to the same namespace
-	matchingPodList := filterPodsByNamespace(allMatches, pod.Namespace)
+	nodeInfos, err := pl.sharedLister.NodeInfos().List()
+	if err != nil {
+		return nil, fmt.Errorf("listing nodeInfos: %v", err.Error())
+	}
+	matchingPodList := filterPods(nodeInfos, selector, pod.Namespace)
 
 	return &preFilterState{
 		matchingPodList:     matchingPodList,
@@ -278,11 +288,11 @@ func (pl *ServiceAffinity) Score(ctx context.Context, state *framework.CycleStat
 		selector = labels.NewSelector()
 	}
 
-	if len(nodeInfo.Pods()) == 0 || selector.Empty() {
+	if len(nodeInfo.Pods) == 0 || selector.Empty() {
 		return 0, nil
 	}
 	var score int64
-	for _, existingPod := range nodeInfo.Pods() {
+	for _, existingPod := range nodeInfo.Pods {
 		// Ignore pods being deleted for spreading purposes
 		// Similar to how it is done for SelectorSpreadPriority
 		if pod.Namespace == existingPod.Pod.Namespace && existingPod.Pod.DeletionTimestamp == nil {
@@ -392,15 +402,21 @@ func createSelectorFromLabels(aL map[string]string) labels.Selector {
 	return labels.Set(aL).AsSelector()
 }
 
-// filterPodsByNamespace filters pods outside a namespace from the given list.
-func filterPodsByNamespace(pods []*v1.Pod, ns string) []*v1.Pod {
-	filtered := []*v1.Pod{}
-	for _, nsPod := range pods {
-		if nsPod.Namespace == ns {
-			filtered = append(filtered, nsPod)
+// filterPods filters pods outside a namespace from the given list.
+func filterPods(nodeInfos []*framework.NodeInfo, selector labels.Selector, ns string) []*v1.Pod {
+	maxSize := 0
+	for _, n := range nodeInfos {
+		maxSize += len(n.Pods)
+	}
+	pods := make([]*v1.Pod, 0, maxSize)
+	for _, n := range nodeInfos {
+		for _, p := range n.Pods {
+			if p.Pod.Namespace == ns && selector.Matches(labels.Set(p.Pod.Labels)) {
+				pods = append(pods, p.Pod)
+			}
 		}
 	}
-	return filtered
+	return pods
 }
 
 // findLabelsInSet gets as many key/value pairs as possible out of a label set.

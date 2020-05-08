@@ -4027,7 +4027,8 @@ type ServicePort struct {
 	// RFC-6335 and http://www.iana.org/assignments/service-names).
 	// Non-standard protocols should use prefixed names such as
 	// mycompany.com/my-custom-protocol.
-	// Field can be enabled with ServiceAppProtocol feature gate.
+	// This is a beta field that is guarded by the ServiceAppProtocol feature
+	// gate and enabled by default.
 	// +optional
 	AppProtocol *string `json:"appProtocol,omitempty" protobuf:"bytes,6,opt,name=appProtocol"`
 
@@ -4253,7 +4254,8 @@ type EndpointPort struct {
 	// RFC-6335 and http://www.iana.org/assignments/service-names).
 	// Non-standard protocols should use prefixed names such as
 	// mycompany.com/my-custom-protocol.
-	// Field can be enabled with ServiceAppProtocol feature gate.
+	// This is a beta field that is guarded by the ServiceAppProtocol feature
+	// gate and enabled by default.
 	// +optional
 	AppProtocol *string `json:"appProtocol,omitempty" protobuf:"bytes,4,opt,name=appProtocol"`
 }
@@ -5213,18 +5215,9 @@ type EventSeries struct {
 	Count int32 `json:"count,omitempty" protobuf:"varint,1,name=count"`
 	// Time of the last occurrence observed
 	LastObservedTime metav1.MicroTime `json:"lastObservedTime,omitempty" protobuf:"bytes,2,name=lastObservedTime"`
-	// State of this Series: Ongoing or Finished
-	// Deprecated. Planned removal for 1.18
-	State EventSeriesState `json:"state,omitempty" protobuf:"bytes,3,name=state"`
+
+	// +k8s:deprecated=state,protobuf=3
 }
-
-type EventSeriesState string
-
-const (
-	EventSeriesStateOngoing  EventSeriesState = "Ongoing"
-	EventSeriesStateFinished EventSeriesState = "Finished"
-	EventSeriesStateUnknown  EventSeriesState = "Unknown"
-)
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
@@ -5493,7 +5486,7 @@ type Secret struct {
 	// be updated (only object metadata can be modified).
 	// If not set to true, the field can be modified at any time.
 	// Defaulted to nil.
-	// This is an alpha field enabled by ImmutableEphemeralVolumes feature gate.
+	// This is a beta field enabled by ImmutableEphemeralVolumes feature gate.
 	// +optional
 	Immutable *bool `json:"immutable,omitempty" protobuf:"varint,5,opt,name=immutable"`
 
@@ -5634,7 +5627,7 @@ type ConfigMap struct {
 	// be updated (only object metadata can be modified).
 	// If not set to true, the field can be modified at any time.
 	// Defaulted to nil.
-	// This is an alpha field enabled by ImmutableEphemeralVolumes feature gate.
+	// This is a beta field enabled by ImmutableEphemeralVolumes feature gate.
 	// +optional
 	Immutable *bool `json:"immutable,omitempty" protobuf:"varint,4,opt,name=immutable"`
 

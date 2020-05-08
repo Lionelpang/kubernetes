@@ -55,6 +55,7 @@ import (
 	cloudprovider "k8s.io/cloud-provider"
 	cliflag "k8s.io/component-base/cli/flag"
 	"k8s.io/component-base/cli/globalflag"
+	"k8s.io/component-base/configz"
 	"k8s.io/component-base/term"
 	"k8s.io/component-base/version"
 	"k8s.io/component-base/version/verflag"
@@ -67,8 +68,6 @@ import (
 	serviceaccountcontroller "k8s.io/kubernetes/pkg/controller/serviceaccount"
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/serviceaccount"
-	"k8s.io/kubernetes/pkg/util/configz"
-	utilflag "k8s.io/kubernetes/pkg/util/flag"
 )
 
 const (
@@ -107,7 +106,7 @@ Kubernetes today are the replication controller, endpoints controller, namespace
 controller, and serviceaccounts controller.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			verflag.PrintAndExitIfRequested()
-			utilflag.PrintFlags(cmd.Flags())
+			cliflag.PrintFlags(cmd.Flags())
 
 			c, err := s.Config(KnownControllers(), ControllersDisabledByDefault.List())
 			if err != nil {

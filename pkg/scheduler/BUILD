@@ -45,7 +45,6 @@ go_library(
         "//staging/src/k8s.io/client-go/listers/core/v1:go_default_library",
         "//staging/src/k8s.io/client-go/listers/policy/v1beta1:go_default_library",
         "//staging/src/k8s.io/client-go/tools/cache:go_default_library",
-        "//staging/src/k8s.io/kube-scheduler/config/v1alpha2:go_default_library",
         "//vendor/github.com/google/go-cmp/cmp:go_default_library",
         "//vendor/k8s.io/klog:go_default_library",
     ],
@@ -60,7 +59,6 @@ go_test(
     ],
     embed = [":go_default_library"],
     deps = [
-        "//pkg/api/testing:go_default_library",
         "//pkg/apis/core:go_default_library",
         "//pkg/controller/volume/scheduling:go_default_library",
         "//pkg/features:go_default_library",
@@ -126,7 +124,6 @@ filegroup(
         "//pkg/scheduler/internal/parallelize:all-srcs",
         "//pkg/scheduler/internal/queue:all-srcs",
         "//pkg/scheduler/metrics:all-srcs",
-        "//pkg/scheduler/nodeinfo:all-srcs",
         "//pkg/scheduler/profile:all-srcs",
         "//pkg/scheduler/testing:all-srcs",
         "//pkg/scheduler/util:all-srcs",

@@ -11,6 +11,7 @@ go_library(
     importpath = "k8s.io/kubernetes/pkg/scheduler/framework/plugins/podtopologyspread",
     visibility = ["//visibility:public"],
     deps = [
+        "//pkg/scheduler/apis/config:go_default_library",
         "//pkg/scheduler/framework/plugins/helper:go_default_library",
         "//pkg/scheduler/framework/v1alpha1:go_default_library",
         "//pkg/scheduler/internal/parallelize:go_default_library",
@@ -37,6 +38,7 @@ go_test(
     ],
     embed = [":go_default_library"],
     deps = [
+        "//pkg/scheduler/apis/config:go_default_library",
         "//pkg/scheduler/framework/v1alpha1:go_default_library",
         "//pkg/scheduler/internal/cache:go_default_library",
         "//pkg/scheduler/internal/parallelize:go_default_library",

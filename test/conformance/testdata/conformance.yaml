@@ -804,6 +804,14 @@
     definitions MUST be published for custom resource definitions.
   release: v1.16
   file: test/e2e/apimachinery/crd_publish_openapi.go
+- testname: Event resource lifecycle
+  codename: '[sig-api-machinery] Events should ensure that an event can be fetched,
+    patched, deleted, and listed [Conformance]'
+  description: Create an event, the event MUST exist. The event is patched with a
+    new message, the check MUST have the update message. The event is deleted and
+    MUST NOT show up when listing all events.
+  release: v1.19
+  file: test/e2e/framework/events/events.go
 - testname: Garbage Collector, delete deployment,  propagation policy background
   codename: '[sig-api-machinery] Garbage collector should delete RS created by deployment
     when not orphaning [Conformance]'
@@ -1561,20 +1569,6 @@
     other platforms like Windows.
   release: v1.9
   file: test/e2e/common/networking.go
-- testname: Proxy, logs endpoint
-  codename: '[sig-network] Proxy version v1 should proxy logs on node using proxy
-    subresource  [Conformance]'
-  description: Select any node in the cluster to invoke /proxy/nodes/<nodeip>//logs
-    endpoint. This endpoint MUST be reachable.
-  release: v1.9
-  file: test/e2e/network/proxy.go
-- testname: Proxy, logs port endpoint
-  codename: '[sig-network] Proxy version v1 should proxy logs on node with explicit
-    kubelet port using proxy subresource  [Conformance]'
-  description: Select any node in the cluster to invoke /proxy/nodes/<nodeip>:10250/logs
-    endpoint. This endpoint MUST be reachable.
-  release: v1.9
-  file: test/e2e/network/proxy.go
 - testname: Proxy, logs service endpoint
   codename: '[sig-network] Proxy version v1 should proxy through a service and a pod  [Conformance]'
   description: Select any node in the cluster to invoke  /logs endpoint  using the

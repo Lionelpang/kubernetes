@@ -45,6 +45,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	cliflag "k8s.io/component-base/cli/flag"
 	"k8s.io/component-base/cli/globalflag"
+	"k8s.io/component-base/configz"
 	"k8s.io/component-base/logs"
 	"k8s.io/component-base/metrics/legacyregistry"
 	"k8s.io/component-base/term"
@@ -59,8 +60,6 @@ import (
 	framework "k8s.io/kubernetes/pkg/scheduler/framework/v1alpha1"
 	"k8s.io/kubernetes/pkg/scheduler/metrics"
 	"k8s.io/kubernetes/pkg/scheduler/profile"
-	"k8s.io/kubernetes/pkg/util/configz"
-	utilflag "k8s.io/kubernetes/pkg/util/flag"
 )
 
 // Option configures a framework.Registry.
@@ -75,13 +74,13 @@ func NewSchedulerCommand(registryOptions ...Option) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use: "kube-scheduler",
-		Long: `The Kubernetes scheduler is a policy-rich, topology-aware,
-workload-specific function that significantly impacts availability, performance,
-and capacity. The scheduler needs to take into account individual and collective
-resource requirements, quality of service requirements, hardware/software/policy
-constraints, affinity and anti-affinity specifications, data locality, inter-workload
-interference, deadlines, and so on. Workload-specific requirements will be exposed
-through the API as necessary. See [scheduling](https://kubernetes.io/docs/concepts/scheduling/)
+		Long: `The Kubernetes scheduler is a control plane process which assigns
+Pods to Nodes. The scheduler determines which Nodes are valid placements for
+each Pod in the scheduling queue according to constraints and available
+resources. The scheduler then ranks each valid Node and binds the Pod to a
+suitable Node. Multiple different schedulers may be used within a cluster;
+kube-scheduler is the reference implementation.
+See [scheduling](https://kubernetes.io/docs/concepts/scheduling/)
 for more information about scheduling and the kube-scheduler component.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			if err := runCommand(cmd, args, opts, registryOptions...); err != nil {
@@ -117,7 +116,7 @@ for more information about scheduling and the kube-scheduler component.`,
 // runCommand runs the scheduler.
 func runCommand(cmd *cobra.Command, args []string, opts *options.Options, registryOptions ...Option) error {
 	verflag.PrintAndExitIfRequested()
-	utilflag.PrintFlags(cmd.Flags())
+	cliflag.PrintFlags(cmd.Flags())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

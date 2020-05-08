@@ -190,6 +190,7 @@ type ExtraConfig struct {
 
 	ServiceAccountIssuer        serviceaccount.TokenGenerator
 	ServiceAccountMaxExpiration time.Duration
+	ExtendExpiration            bool
 
 	// ServiceAccountIssuerDiscovery
 	ServiceAccountIssuerURL  string
@@ -397,6 +398,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 			ServiceNodePortRange:        c.ExtraConfig.ServiceNodePortRange,
 			LoopbackClientConfig:        c.GenericConfig.LoopbackClientConfig,
 			ServiceAccountIssuer:        c.ExtraConfig.ServiceAccountIssuer,
+			ExtendExpiration:            c.ExtraConfig.ExtendExpiration,
 			ServiceAccountMaxExpiration: c.ExtraConfig.ServiceAccountMaxExpiration,
 			APIAudiences:                c.GenericConfig.Authentication.APIAudiences,
 		}
@@ -432,7 +434,7 @@ func (c completedConfig) New(delegationTarget genericapiserver.DelegationTarget)
 		flowcontrolrest.RESTStorageProvider{},
 		// keep apps after extensions so legacy clients resolve the extensions versions of shared resource names.
 		// See https://github.com/kubernetes/kubernetes/issues/42392
-		appsrest.RESTStorageProvider{},
+		appsrest.StorageProvider{},
 		admissionregistrationrest.RESTStorageProvider{},
 		eventsrest.RESTStorageProvider{TTL: c.ExtraConfig.EventTTL},
 	}

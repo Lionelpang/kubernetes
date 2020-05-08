@@ -110,7 +110,7 @@ func machine2PrioritizerExtender(pod *v1.Pod, nodes []*v1.Node) (*framework.Node
 type machine2PrioritizerPlugin struct{}
 
 func newMachine2PrioritizerPlugin() framework.PluginFactory {
-	return func(_ *runtime.Unknown, _ framework.FrameworkHandle) (framework.Plugin, error) {
+	return func(_ runtime.Object, _ framework.FrameworkHandle) (framework.Plugin, error) {
 		return &machine2PrioritizerPlugin{}, nil
 	}
 }
@@ -225,7 +225,7 @@ func (f *FakeExtender) selectVictimsOnNodeByExtender(pod *v1.Pod, node *v1.Node)
 	// As the first step, remove all the lower priority pods from the node and
 	// check if the given pod can be scheduled.
 	podPriority := podutil.GetPodPriority(pod)
-	for _, p := range nodeInfoCopy.Pods() {
+	for _, p := range nodeInfoCopy.Pods {
 		if podutil.GetPodPriority(p.Pod) < podPriority {
 			potentialVictims = append(potentialVictims, p.Pod)
 			removePod(p.Pod)

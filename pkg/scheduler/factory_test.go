@@ -18,10 +18,7 @@ package scheduler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apicore "k8s.io/kubernetes/pkg/apis/core"
 	"reflect"
 	"strings"
 	"testing"
@@ -29,6 +26,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/clock"
@@ -40,7 +38,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/events"
 	extenderv1 "k8s.io/kube-scheduler/extender/v1"
-	apitesting "k8s.io/kubernetes/pkg/api/testing"
+	apicore "k8s.io/kubernetes/pkg/apis/core"
 	kubefeatures "k8s.io/kubernetes/pkg/features"
 	schedulerapi "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config/scheme"
@@ -162,10 +160,18 @@ func TestCreateFromConfig(t *testing.T) {
 			}
 
 			// Verify that node label predicate/priority are converted to framework plugins.
-			wantArgs := `{"Name":"NodeLabel","Args":{"presentLabels":["zone"],"absentLabels":["foo"],"presentLabelsPreference":["l1"],"absentLabelsPreference":["l2"]}}`
+			var wantArgs runtime.Object = &schedulerapi.NodeLabelArgs{
+				PresentLabels:           []string{"zone"},
+				AbsentLabels:            []string{"foo"},
+				PresentLabelsPreference: []string{"l1"},
+				AbsentLabelsPreference:  []string{"l2"},
+			}
 			verifyPluginConvertion(t, nodelabel.Name, []string{"FilterPlugin", "ScorePlugin"}, prof, &factory.profiles[0], 6, wantArgs)
 			// Verify that service affinity custom predicate/priority is converted to framework plugin.
-			wantArgs = `{"Name":"ServiceAffinity","Args":{"affinityLabels":["zone","foo"],"antiAffinityLabelsPreference":["rack","zone"]}}`
+			wantArgs = &schedulerapi.ServiceAffinityArgs{
+				AffinityLabels:               []string{"zone", "foo"},
+				AntiAffinityLabelsPreference: []string{"rack", "zone"},
+			}
 			verifyPluginConvertion(t, serviceaffinity.Name, []string{"FilterPlugin", "ScorePlugin"}, prof, &factory.profiles[0], 6, wantArgs)
 			// TODO(#87703): Verify all plugin configs.
 		})
@@ -173,8 +179,8 @@ func TestCreateFromConfig(t *testing.T) {
 
 }
 
-func verifyPluginConvertion(t *testing.T, name string, extentionPoints []string, prof *profile.Profile, cfg *schedulerapi.KubeSchedulerProfile, wantWeight int32, wantArgs string) {
-	for _, extensionPoint := range extentionPoints {
+func verifyPluginConvertion(t *testing.T, name string, extensionPoints []string, prof *profile.Profile, cfg *schedulerapi.KubeSchedulerProfile, wantWeight int32, wantArgs runtime.Object) {
+	for _, extensionPoint := range extensionPoints {
 		plugin, ok := findPlugin(name, extensionPoint, prof)
 		if !ok {
 			t.Fatalf("%q plugin does not exist in framework.", name)
@@ -186,12 +192,8 @@ func verifyPluginConvertion(t *testing.T, name string, extentionPoints []string,
 		}
 		// Verify that the policy config is converted to plugin config.
 		pluginConfig := findPluginConfig(name, cfg)
-		encoding, err := json.Marshal(pluginConfig)
-		if err != nil {
-			t.Errorf("Failed to marshal %+v: %v", pluginConfig, err)
-		}
-		if string(encoding) != wantArgs {
-			t.Errorf("Config for %v plugin mismatch. got: %v, want: %v", name, string(encoding), wantArgs)
+		if diff := cmp.Diff(wantArgs, pluginConfig.Args); diff != "" {
+			t.Errorf("Config for %v plugin mismatch (-want,+got):\n%s", name, diff)
 		}
 	}
 }
@@ -251,7 +253,7 @@ func TestCreateFromConfigWithHardPodAffinitySymmetricWeight(t *testing.T) {
 	for _, cfg := range factory.profiles[0].PluginConfig {
 		if cfg.Name == interpodaffinity.Name {
 			foundAffinityCfg = true
-			wantArgs := runtime.Unknown{Raw: []byte(`{"hardPodAffinityWeight":10}`)}
+			wantArgs := &schedulerapi.InterPodAffinityArgs{HardPodAffinityWeight: 10}
 
 			if diff := cmp.Diff(wantArgs, cfg.Args); diff != "" {
 				t.Errorf("wrong InterPodAffinity args (-want, +got): %s", diff)
@@ -314,16 +316,22 @@ func TestCreateFromConfigWithUnspecifiedPredicatesOrPriorities(t *testing.T) {
 }
 
 func TestDefaultErrorFunc(t *testing.T) {
+	grace := int64(30)
 	testPod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "bar"},
-		Spec:       apitesting.V1DeepEqualSafePodSpec(),
+		Spec: v1.PodSpec{
+			RestartPolicy:                 v1.RestartPolicyAlways,
+			DNSPolicy:                     v1.DNSClusterFirst,
+			TerminationGracePeriodSeconds: &grace,
+			SecurityContext:               &v1.PodSecurityContext{},
+		},
 	}
 
 	nodeBar, nodeFoo :=
 		&v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "bar"}},
 		&v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "foo"}}
 
-	testPodInfo := &framework.PodInfo{Pod: testPod}
+	testPodInfo := &framework.QueuedPodInfo{Pod: testPod}
 	client := fake.NewSimpleClientset(&v1.PodList{Items: []v1.Pod{*testPod}}, &v1.NodeList{Items: []v1.Node{*nodeBar}})
 	stopCh := make(chan struct{})
 	defer close(stopCh)

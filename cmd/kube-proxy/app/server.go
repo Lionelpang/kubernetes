@@ -55,6 +55,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	cliflag "k8s.io/component-base/cli/flag"
 	componentbaseconfig "k8s.io/component-base/config"
+	"k8s.io/component-base/configz"
 	"k8s.io/component-base/metrics/legacyregistry"
 	"k8s.io/component-base/version"
 	"k8s.io/component-base/version/verflag"
@@ -76,7 +77,6 @@ import (
 	"k8s.io/kubernetes/pkg/proxy/ipvs"
 	"k8s.io/kubernetes/pkg/proxy/userspace"
 	proxyutil "k8s.io/kubernetes/pkg/proxy/util"
-	"k8s.io/kubernetes/pkg/util/configz"
 	"k8s.io/kubernetes/pkg/util/filesystem"
 	utilflag "k8s.io/kubernetes/pkg/util/flag"
 	utilipset "k8s.io/kubernetes/pkg/util/ipset"
@@ -481,7 +481,7 @@ addon that provides cluster DNS for these cluster IPs. The user must create a se
 with the apiserver API to configure the proxy.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			verflag.PrintAndExitIfRequested()
-			utilflag.PrintFlags(cmd.Flags())
+			cliflag.PrintFlags(cmd.Flags())
 
 			if err := initForOS(opts.WindowsService); err != nil {
 				klog.Fatalf("failed OS init: %v", err)

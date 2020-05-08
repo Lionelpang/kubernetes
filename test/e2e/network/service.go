@@ -1151,7 +1151,8 @@ var _ = SIGDescribe("Services", func() {
 		framework.ExpectNoError(err)
 	})
 
-	ginkgo.It("should be able to change the type and ports of a service [Slow]", func() {
+	// TODO: Get rid of [DisabledForLargeClusters] tag when issue #56138 is fixed.
+	ginkgo.It("should be able to change the type and ports of a service [Slow] [DisabledForLargeClusters]", func() {
 		// requires cloud load-balancer support
 		e2eskipper.SkipUnlessProviderIs("gce", "gke", "aws")
 
@@ -2161,8 +2162,7 @@ var _ = SIGDescribe("Services", func() {
 		checkReachabilityFromPod(true, normalReachabilityTimeout, namespace, dropPod.Name, svcIP)
 	})
 
-	// TODO: Get rid of [DisabledForLargeClusters] tag when issue #56138 is fixed.
-	ginkgo.It("should be able to create an internal type load balancer [Slow] [DisabledForLargeClusters]", func() {
+	ginkgo.It("should be able to create an internal type load balancer [Slow]", func() {
 		e2eskipper.SkipUnlessProviderIs("azure", "gke", "gce")
 
 		createTimeout := e2eservice.GetServiceLoadBalancerCreationTimeout(cs)
@@ -2450,8 +2450,9 @@ var _ = SIGDescribe("Services", func() {
 		execAffinityTestForNonLBServiceWithTransition(f, cs, svc)
 	})
 
+	// TODO: Get rid of [DisabledForLargeClusters] tag when issue #56138 is fixed.
 	// [LinuxOnly]: Windows does not support session affinity.
-	ginkgo.It("should have session affinity work for LoadBalancer service with ESIPP on [Slow] [LinuxOnly]", func() {
+	ginkgo.It("should have session affinity work for LoadBalancer service with ESIPP on [Slow] [DisabledForLargeClusters] [LinuxOnly]", func() {
 		// L4 load balancer affinity `ClientIP` is not supported on AWS ELB.
 		e2eskipper.SkipIfProviderIs("aws")
 
@@ -2461,8 +2462,9 @@ var _ = SIGDescribe("Services", func() {
 		execAffinityTestForLBService(f, cs, svc)
 	})
 
+	// TODO: Get rid of [DisabledForLargeClusters] tag when issue #56138 is fixed.
 	// [LinuxOnly]: Windows does not support session affinity.
-	ginkgo.It("should be able to switch session affinity for LoadBalancer service with ESIPP on [Slow] [LinuxOnly]", func() {
+	ginkgo.It("should be able to switch session affinity for LoadBalancer service with ESIPP on [Slow] [DisabledForLargeClusters] [LinuxOnly]", func() {
 		// L4 load balancer affinity `ClientIP` is not supported on AWS ELB.
 		e2eskipper.SkipIfProviderIs("aws")
 
@@ -2472,8 +2474,9 @@ var _ = SIGDescribe("Services", func() {
 		execAffinityTestForLBServiceWithTransition(f, cs, svc)
 	})
 
+	// TODO: Get rid of [DisabledForLargeClusters] tag when issue #56138 is fixed.
 	// [LinuxOnly]: Windows does not support session affinity.
-	ginkgo.It("should have session affinity work for LoadBalancer service with ESIPP off [Slow] [LinuxOnly]", func() {
+	ginkgo.It("should have session affinity work for LoadBalancer service with ESIPP off [Slow] [DisabledForLargeClusters] [LinuxOnly]", func() {
 		// L4 load balancer affinity `ClientIP` is not supported on AWS ELB.
 		e2eskipper.SkipIfProviderIs("aws")
 
@@ -2483,8 +2486,9 @@ var _ = SIGDescribe("Services", func() {
 		execAffinityTestForLBService(f, cs, svc)
 	})
 
+	// TODO: Get rid of [DisabledForLargeClusters] tag when issue #56138 is fixed.
 	// [LinuxOnly]: Windows does not support session affinity.
-	ginkgo.It("should be able to switch session affinity for LoadBalancer service with ESIPP off [Slow] [LinuxOnly]", func() {
+	ginkgo.It("should be able to switch session affinity for LoadBalancer service with ESIPP off [Slow] [DisabledForLargeClusters] [LinuxOnly]", func() {
 		// L4 load balancer affinity `ClientIP` is not supported on AWS ELB.
 		e2eskipper.SkipIfProviderIs("aws")
 
@@ -3064,7 +3068,8 @@ var _ = SIGDescribe("ESIPP [Slow]", func() {
 		}
 	})
 
-	ginkgo.It("should handle updates to ExternalTrafficPolicy field", func() {
+	// TODO: Get rid of [DisabledForLargeClusters] tag when issue #90047 is fixed.
+	ginkgo.It("should handle updates to ExternalTrafficPolicy field [DisabledForLargeClusters]", func() {
 		namespace := f.Namespace.Name
 		serviceName := "external-local-update"
 		jig := e2eservice.NewTestJig(cs, namespace, serviceName)
@@ -3222,6 +3227,18 @@ func execAffinityTestForSessionAffinityTimeout(f *framework.Framework, cs client
 	serviceType := svc.Spec.Type
 	// set an affinity timeout equal to the number of connection requests
 	svcSessionAffinityTimeout := int32(AffinityConfirmCount)
+	if proxyMode, err := proxyMode(f); err == nil {
+		if proxyMode == "ipvs" {
+			// session affinity timeout must be greater than 120 in ipvs mode,
+			// because IPVS module has a hardcoded TIME_WAIT timeout of 120s,
+			// and that value can't be sysctl'ed now.
+			// Ref: https://github.com/torvalds/linux/blob/master/net/netfilter/ipvs/ip_vs_proto_tcp.c
+			// TODO: remove this to speed up testing when IPVS does really respect session affinity timeout
+			svcSessionAffinityTimeout = int32(125)
+		}
+	} else {
+		framework.Logf("Couldn't detect KubeProxy mode - test failure may be expected: %v", err)
+	}
 	svc.Spec.SessionAffinity = v1.ServiceAffinityClientIP
 	svc.Spec.SessionAffinityConfig = &v1.SessionAffinityConfig{
 		ClientIP: &v1.ClientIPConfig{TimeoutSeconds: &svcSessionAffinityTimeout},

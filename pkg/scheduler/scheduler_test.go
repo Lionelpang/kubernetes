@@ -335,12 +335,12 @@ func TestSchedulerScheduleOne(t *testing.T) {
 				SchedulerCache:      sCache,
 				Algorithm:           item.algo,
 				podConditionUpdater: fakePodConditionUpdater{},
-				Error: func(p *framework.PodInfo, err error) {
+				Error: func(p *framework.QueuedPodInfo, err error) {
 					gotPod = p.Pod
 					gotError = err
 				},
-				NextPod: func() *framework.PodInfo {
-					return &framework.PodInfo{Pod: item.sendPod}
+				NextPod: func() *framework.QueuedPodInfo {
+					return &framework.QueuedPodInfo{Pod: item.sendPod}
 				},
 				Profiles: profile.Map{
 					testSchedulerName: &profile.Profile{
@@ -388,7 +388,7 @@ type fakeNodeSelector struct {
 	fakeNodeSelectorArgs
 }
 
-func newFakeNodeSelector(args *runtime.Unknown, _ framework.FrameworkHandle) (framework.Plugin, error) {
+func newFakeNodeSelector(args runtime.Object, _ framework.FrameworkHandle) (framework.Plugin, error) {
 	pl := &fakeNodeSelector{}
 	if err := framework.DecodeInto(args, &pl.fakeNodeSelectorArgs); err != nil {
 		return nil, err
@@ -455,7 +455,7 @@ func TestSchedulerMultipleProfilesScheduling(t *testing.T) {
 					}},
 				PluginConfig: []schedulerapi.PluginConfig{
 					{Name: "FakeNodeSelector",
-						Args: runtime.Unknown{Raw: []byte(`{"nodeName":"machine2"}`)},
+						Args: &runtime.Unknown{Raw: []byte(`{"nodeName":"machine2"}`)},
 					},
 				},
 			},
@@ -468,7 +468,7 @@ func TestSchedulerMultipleProfilesScheduling(t *testing.T) {
 					}},
 				PluginConfig: []schedulerapi.PluginConfig{
 					{Name: "FakeNodeSelector",
-						Args: runtime.Unknown{Raw: []byte(`{"nodeName":"machine3"}`)},
+						Args: &runtime.Unknown{Raw: []byte(`{"nodeName":"machine3"}`)},
 					},
 				},
 			},
@@ -827,10 +827,10 @@ func setupTestScheduler(queuedPodStore *clientcache.FIFO, scache internalcache.C
 	sched := &Scheduler{
 		SchedulerCache: scache,
 		Algorithm:      algo,
-		NextPod: func() *framework.PodInfo {
-			return &framework.PodInfo{Pod: clientcache.Pop(queuedPodStore).(*v1.Pod)}
+		NextPod: func() *framework.QueuedPodInfo {
+			return &framework.QueuedPodInfo{Pod: clientcache.Pop(queuedPodStore).(*v1.Pod)}
 		},
-		Error: func(p *framework.PodInfo, err error) {
+		Error: func(p *framework.QueuedPodInfo, err error) {
 			errChan <- err
 		},
 		Profiles:            profiles,

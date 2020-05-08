@@ -118,7 +118,7 @@ func Fits(pod *v1.Pod, nodeInfo *framework.NodeInfo) bool {
 
 func fitsPorts(wantPorts []*v1.ContainerPort, nodeInfo *framework.NodeInfo) bool {
 	// try to see whether existingPorts and wantPorts will conflict or not
-	existingPorts := nodeInfo.UsedPorts()
+	existingPorts := nodeInfo.UsedPorts
 	for _, cp := range wantPorts {
 		if existingPorts.CheckConflict(cp.HostIP, string(cp.Protocol), cp.HostPort) {
 			return false
@@ -128,6 +128,6 @@ func fitsPorts(wantPorts []*v1.ContainerPort, nodeInfo *framework.NodeInfo) bool
 }
 
 // New initializes a new plugin and returns it.
-func New(_ *runtime.Unknown, _ framework.FrameworkHandle) (framework.Plugin, error) {
+func New(_ runtime.Object, _ framework.FrameworkHandle) (framework.Plugin, error) {
 	return &NodePorts{}, nil
 }

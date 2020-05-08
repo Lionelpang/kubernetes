@@ -197,13 +197,13 @@ func NewFramework(r Registry, plugins *config.Plugins, args []config.PluginConfi
 	// get needed plugins from config
 	pg := f.pluginsNeeded(plugins)
 
-	pluginConfig := make(map[string]*runtime.Unknown, 0)
+	pluginConfig := make(map[string]runtime.Object, 0)
 	for i := range args {
 		name := args[i].Name
 		if _, ok := pluginConfig[name]; ok {
 			return nil, fmt.Errorf("repeated config for plugin %s", name)
 		}
-		pluginConfig[name] = &args[i].Args
+		pluginConfig[name] = args[i].Args
 	}
 
 	pluginsMap := make(map[string]Plugin)
@@ -295,7 +295,7 @@ func (f *framework) QueueSortFunc() LessFunc {
 	if f == nil {
 		// If framework is nil, simply keep their order unchanged.
 		// NOTE: this is primarily for tests.
-		return func(_, _ *PodInfo) bool { return false }
+		return func(_, _ *QueuedPodInfo) bool { return false }
 	}
 
 	if len(f.queueSortPlugins) == 0 {
@@ -424,19 +424,15 @@ func (f *framework) RunFilterPlugins(
 	pod *v1.Pod,
 	nodeInfo *NodeInfo,
 ) PluginToStatus {
-	var firstFailedStatus *Status
 	statuses := make(PluginToStatus)
 	for _, pl := range f.filterPlugins {
 		pluginStatus := f.runFilterPlugin(ctx, pl, state, pod, nodeInfo)
-		if len(statuses) == 0 {
-			firstFailedStatus = pluginStatus
-		}
 		if !pluginStatus.IsSuccess() {
 			if !pluginStatus.IsUnschedulable() {
 				// Filter plugins are not supposed to return any status other than
 				// Success or Unschedulable.
-				firstFailedStatus = NewStatus(Error, fmt.Sprintf("running %q filter plugin for pod %q: %v", pl.Name(), pod.Name, pluginStatus.Message()))
-				return map[string]*Status{pl.Name(): firstFailedStatus}
+				errStatus := NewStatus(Error, fmt.Sprintf("running %q filter plugin for pod %q: %v", pl.Name(), pod.Name, pluginStatus.Message()))
+				return map[string]*Status{pl.Name(): errStatus}
 			}
 			statuses[pl.Name()] = pluginStatus
 			if !f.runAllFilters {

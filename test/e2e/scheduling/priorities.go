@@ -314,14 +314,14 @@ var _ = SIGDescribe("SchedulerPriorities [Serial]", func() {
 		for i := 0; i < 10; i++ {
 			testTaint := addRandomTaintToNode(cs, nodeName)
 			tolerations = append(tolerations, v1.Toleration{Key: testTaint.Key, Value: testTaint.Value, Effect: testTaint.Effect})
-			defer framework.RemoveTaintOffNode(cs, nodeName, *testTaint)
+			defer e2enode.RemoveTaintOffNode(cs, nodeName, *testTaint)
 		}
 		ginkgo.By("Adding 10 intolerable taints to all other nodes")
 		for i := 1; i < len(nodeList.Items); i++ {
 			node := nodeList.Items[i]
 			for i := 0; i < 10; i++ {
 				testTaint := addRandomTaintToNode(cs, node.Name)
-				defer framework.RemoveTaintOffNode(cs, node.Name, *testTaint)
+				defer e2enode.RemoveTaintOffNode(cs, node.Name, *testTaint)
 			}
 		}
 
@@ -580,7 +580,7 @@ func addRandomTaintToNode(cs clientset.Interface, nodeName string) *v1.Taint {
 		Value:  fmt.Sprintf("testing-taint-value-%s", string(uuid.NewUUID())),
 		Effect: v1.TaintEffectPreferNoSchedule,
 	}
-	framework.AddOrUpdateTaintOnNode(cs, nodeName, testTaint)
+	e2enode.AddOrUpdateTaintOnNode(cs, nodeName, testTaint)
 	framework.ExpectNodeHasTaint(cs, nodeName, &testTaint)
 	return &testTaint
 }

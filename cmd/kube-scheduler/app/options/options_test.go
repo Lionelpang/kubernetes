@@ -203,7 +203,12 @@ profiles:
       disabled:
       - name: baz
   pluginConfig:
+  - name: InterPodAffinity
+    args:
+      hardPodAffinityWeight: 2
   - name: foo
+    args:
+      bar: baz
 `, configKubeconfig)), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
@@ -542,8 +547,17 @@ profiles:
 						},
 						PluginConfig: []kubeschedulerconfig.PluginConfig{
 							{
+								Name: "InterPodAffinity",
+								Args: &kubeschedulerconfig.InterPodAffinityArgs{
+									HardPodAffinityWeight: 2,
+								},
+							},
+							{
 								Name: "foo",
-								Args: runtime.Unknown{},
+								Args: &runtime.Unknown{
+									Raw:         []byte(`{"bar":"baz"}`),
+									ContentType: "application/json",
+								},
 							},
 						},
 					},
@@ -608,7 +622,6 @@ profiles:
 						PluginConfig: []kubeschedulerconfig.PluginConfig{
 							{
 								Name: "foo",
-								Args: runtime.Unknown{},
 							},
 						},
 					},
@@ -666,9 +679,7 @@ profiles:
 						PluginConfig: []kubeschedulerconfig.PluginConfig{
 							{
 								Name: "InterPodAffinity",
-								Args: runtime.Unknown{
-									Raw: []byte(`{"hardPodAffinityWeight":5}`),
-								},
+								Args: &kubeschedulerconfig.InterPodAffinityArgs{HardPodAffinityWeight: 5},
 							},
 						},
 					},
@@ -760,7 +771,7 @@ profiles:
 			}
 
 			if diff := cmp.Diff(tc.expectedConfig, config.ComponentConfig); diff != "" {
-				t.Errorf("incorrect config (-want, +got):\n%s", diff)
+				t.Errorf("incorrect config (-want,+got):\n%s", diff)
 			}
 
 			// ensure we have a client

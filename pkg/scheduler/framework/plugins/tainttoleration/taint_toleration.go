@@ -56,17 +56,12 @@ func (pl *TaintToleration) Filter(ctx context.Context, state *framework.CycleSta
 		return framework.NewStatus(framework.Error, "invalid nodeInfo")
 	}
 
-	taints, err := nodeInfo.Taints()
-	if err != nil {
-		return framework.NewStatus(framework.Error, err.Error())
-	}
-
 	filterPredicate := func(t *v1.Taint) bool {
 		// PodToleratesNodeTaints is only interested in NoSchedule and NoExecute taints.
 		return t.Effect == v1.TaintEffectNoSchedule || t.Effect == v1.TaintEffectNoExecute
 	}
 
-	taint, isUntolerated := v1helper.FindMatchingUntoleratedTaint(taints, pod.Spec.Tolerations, filterPredicate)
+	taint, isUntolerated := v1helper.FindMatchingUntoleratedTaint(nodeInfo.Node().Spec.Taints, pod.Spec.Tolerations, filterPredicate)
 	if !isUntolerated {
 		return nil
 	}
@@ -167,6 +162,6 @@ func (pl *TaintToleration) ScoreExtensions() framework.ScoreExtensions {
 }
 
 // New initializes a new plugin and returns it.
-func New(_ *runtime.Unknown, h framework.FrameworkHandle) (framework.Plugin, error) {
+func New(_ runtime.Object, h framework.FrameworkHandle) (framework.Plugin, error) {
 	return &TaintToleration{handle: h}, nil
 }

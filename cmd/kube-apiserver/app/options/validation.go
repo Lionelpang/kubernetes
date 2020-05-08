@@ -25,7 +25,6 @@ import (
 	apiextensionsapiserver "k8s.io/apiextensions-apiserver/pkg/apiserver"
 	genericfeatures "k8s.io/apiserver/pkg/features"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
-	"k8s.io/component-base/metrics"
 	aggregatorscheme "k8s.io/kube-aggregator/pkg/apiserver/scheme"
 	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	"k8s.io/kubernetes/pkg/features"
@@ -75,7 +74,7 @@ func validateClusterIPFlags(options *ServerRunOptions) []error {
 			errs = append(errs, errors.New("--service-cluster-ip-range and --secondary-service-cluster-ip-range must be of different IP family"))
 		}
 
-		// should be smallish sized cidr, this thing is kept in etcd
+		// Should be smallish sized cidr, this thing is kept in etcd
 		// bigger cidr (specially those offered by IPv6) will add no value
 		// significantly increase snapshotting time.
 		var ones, bits = options.SecondaryServiceClusterIPRange.Mask.Size()
@@ -130,7 +129,7 @@ func validateTokenRequest(options *ServerRunOptions) []error {
 
 func validateAPIPriorityAndFairness(options *ServerRunOptions) []error {
 	if utilfeature.DefaultFeatureGate.Enabled(genericfeatures.APIPriorityAndFairness) && options.GenericServerRunOptions.EnablePriorityAndFairness {
-		// we know we need the alpha API enabled.  There are only a few ways to turn it on
+		// We need the alpha API enabled.  There are only a few ways to turn it on
 		enabledAPIString := options.APIEnablement.RuntimeConfig.String()
 		switch {
 		case strings.Contains(enabledAPIString, "api/all=true"):
@@ -144,7 +143,7 @@ func validateAPIPriorityAndFairness(options *ServerRunOptions) []error {
 		}
 	}
 
-	return []error{}
+	return nil
 }
 
 // Validate checks ServerRunOptions and return a slice of found errs.
@@ -165,7 +164,7 @@ func (s *ServerRunOptions) Validate() []error {
 	errs = append(errs, s.InsecureServing.Validate()...)
 	errs = append(errs, s.APIEnablement.Validate(legacyscheme.Scheme, apiextensionsapiserver.Scheme, aggregatorscheme.Scheme)...)
 	errs = append(errs, validateTokenRequest(s)...)
-	errs = append(errs, metrics.ValidateShowHiddenMetricsVersion(s.ShowHiddenMetricsForVersion)...)
+	errs = append(errs, s.Metrics.Validate()...)
 
 	return errs
 }

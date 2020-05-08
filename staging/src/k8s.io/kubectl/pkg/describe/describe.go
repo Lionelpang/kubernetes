@@ -2116,7 +2116,9 @@ func describeJob(job *batchv1.Job, events *corev1.EventList) (string, error) {
 		if controlledBy := printController(job); len(controlledBy) > 0 {
 			w.Write(LEVEL_0, "Controlled By:\t%s\n", controlledBy)
 		}
-		w.Write(LEVEL_0, "Parallelism:\t%d\n", *job.Spec.Parallelism)
+		if job.Spec.Parallelism != nil {
+			w.Write(LEVEL_0, "Parallelism:\t%d\n", *job.Spec.Parallelism)
+		}
 		if job.Spec.Completions != nil {
 			w.Write(LEVEL_0, "Completions:\t%d\n", *job.Spec.Completions)
 		} else {
@@ -3640,6 +3642,9 @@ func DescribeEvents(el *corev1.EventList, w PrefixWriter) {
 			interval = fmt.Sprintf("%s (x%d over %s)", translateTimestampSince(e.LastTimestamp), e.Count, translateTimestampSince(e.FirstTimestamp))
 		} else {
 			interval = translateTimestampSince(e.FirstTimestamp)
+			if e.FirstTimestamp.IsZero() {
+				interval = translateMicroTimestampSince(e.EventTime)
+			}
 		}
 		w.Write(LEVEL_1, "%v\t%v\t%s\t%v\t%v\n",
 			e.Type,
@@ -4741,6 +4746,16 @@ func shorten(s string, maxLength int) string {
 		return s[:maxLength] + "..."
 	}
 	return s
+}
+
+// translateMicroTimestampSince returns the elapsed time since timestamp in
+// human-readable approximation.
+func translateMicroTimestampSince(timestamp metav1.MicroTime) string {
+	if timestamp.IsZero() {
+		return "<unknown>"
+	}
+
+	return duration.HumanDuration(time.Since(timestamp.Time))
 }
 
 // translateTimestampSince returns the elapsed time since timestamp in

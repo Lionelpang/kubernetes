@@ -25,7 +25,6 @@ pkg/apis/certificates/v1beta1
 pkg/apis/certificates/validation
 pkg/apis/core/helper/qos
 pkg/apis/core/v1
-pkg/apis/core/v1/helper
 pkg/apis/core/v1/helper/qos
 pkg/apis/core/validation
 pkg/apis/discovery/v1alpha1
@@ -64,7 +63,6 @@ pkg/controller/endpoint/config/v1alpha1
 pkg/controller/endpointslice/config/v1alpha1
 pkg/controller/garbagecollector
 pkg/controller/garbagecollector/config/v1alpha1
-pkg/controller/job
 pkg/controller/job/config/v1alpha1
 pkg/controller/namespace
 pkg/controller/namespace/config/v1alpha1
@@ -128,10 +126,6 @@ pkg/proxy/userspace
 pkg/proxy/winkernel
 pkg/proxy/winuserspace
 pkg/registry/admissionregistration/rest
-pkg/registry/apps/deployment/storage
-pkg/registry/apps/replicaset/storage
-pkg/registry/apps/rest
-pkg/registry/apps/statefulset/storage
 pkg/registry/auditregistration/rest
 pkg/registry/authentication/rest
 pkg/registry/authentication/tokenreview
@@ -198,7 +192,6 @@ pkg/util/labels # See previous effort in PR #80685
 pkg/util/oom
 pkg/util/procfs
 pkg/util/removeall
-pkg/util/rlimit
 pkg/util/selinux
 pkg/util/taints
 pkg/volume
@@ -407,7 +400,6 @@ staging/src/k8s.io/client-go/kubernetes/typed/core/v1/fake
 staging/src/k8s.io/client-go/kubernetes/typed/extensions/v1beta1/fake
 staging/src/k8s.io/client-go/kubernetes/typed/policy/v1beta1/fake
 staging/src/k8s.io/client-go/metadata/fake
-staging/src/k8s.io/client-go/plugin/pkg/client/auth/oidc
 staging/src/k8s.io/client-go/rest
 staging/src/k8s.io/client-go/rest/fake
 staging/src/k8s.io/client-go/rest/watch

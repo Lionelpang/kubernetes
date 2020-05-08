@@ -459,7 +459,7 @@ message ConfigMap {
   // be updated (only object metadata can be modified).
   // If not set to true, the field can be modified at any time.
   // Defaulted to nil.
-  // This is an alpha field enabled by ImmutableEphemeralVolumes feature gate.
+  // This is a beta field enabled by ImmutableEphemeralVolumes feature gate.
   // +optional
   optional bool immutable = 4;
 
@@ -1055,7 +1055,8 @@ message EndpointPort {
   // RFC-6335 and http://www.iana.org/assignments/service-names).
   // Non-standard protocols should use prefixed names such as
   // mycompany.com/my-custom-protocol.
-  // Field can be enabled with ServiceAppProtocol feature gate.
+  // This is a beta field that is guarded by the ServiceAppProtocol feature
+  // gate and enabled by default.
   // +optional
   optional string appProtocol = 4;
 }
@@ -1454,10 +1455,6 @@ message EventSeries {
 
   // Time of the last occurrence observed
   optional k8s.io.apimachinery.pkg.apis.meta.v1.MicroTime lastObservedTime = 2;
-
-  // State of this Series: Ongoing or Finished
-  // Deprecated. Planned removal for 1.18
-  optional string state = 3;
 }
 
 // EventSource contains information for an event.
@@ -4309,7 +4306,7 @@ message Secret {
   // be updated (only object metadata can be modified).
   // If not set to true, the field can be modified at any time.
   // Defaulted to nil.
-  // This is an alpha field enabled by ImmutableEphemeralVolumes feature gate.
+  // This is a beta field enabled by ImmutableEphemeralVolumes feature gate.
   // +optional
   optional bool immutable = 5;
 
@@ -4646,7 +4643,8 @@ message ServicePort {
   // RFC-6335 and http://www.iana.org/assignments/service-names).
   // Non-standard protocols should use prefixed names such as
   // mycompany.com/my-custom-protocol.
-  // Field can be enabled with ServiceAppProtocol feature gate.
+  // This is a beta field that is guarded by the ServiceAppProtocol feature
+  // gate and enabled by default.
   // +optional
   optional string appProtocol = 6;
 

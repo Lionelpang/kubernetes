@@ -159,10 +159,6 @@ const (
 	JessieDnsutils
 	// Kitten image
 	Kitten
-	// Mounttest image
-	Mounttest
-	// MounttestUser image
-	MounttestUser
 	// Nautilus image
 	Nautilus
 	// NFSProvisioner image
@@ -215,7 +211,7 @@ func initImageConfigs() map[int]Config {
 	configs[CudaVectorAdd] = Config{e2eRegistry, "cuda-vector-add", "1.0"}
 	configs[CudaVectorAdd2] = Config{e2eRegistry, "cuda-vector-add", "2.0"}
 	configs[EchoServer] = Config{e2eRegistry, "echoserver", "2.2"}
-	configs[Etcd] = Config{gcRegistry, "etcd", "3.4.4"}
+	configs[Etcd] = Config{gcRegistry, "etcd", "3.4.7"}
 	configs[GlusterDynamicProvisioner] = Config{dockerGluster, "glusterdynamic-provisioner", "v1.0"}
 	configs[Httpd] = Config{dockerLibraryRegistry, "httpd", "2.4.38-alpine"}
 	configs[HttpdNew] = Config{dockerLibraryRegistry, "httpd", "2.4.39-alpine"}
@@ -223,8 +219,6 @@ func initImageConfigs() map[int]Config {
 	configs[IpcUtils] = Config{e2eRegistry, "ipc-utils", "1.0"}
 	configs[JessieDnsutils] = Config{e2eRegistry, "jessie-dnsutils", "1.0"}
 	configs[Kitten] = Config{e2eRegistry, "kitten", "1.0"}
-	configs[Mounttest] = Config{e2eRegistry, "mounttest", "1.0"}
-	configs[MounttestUser] = Config{e2eRegistry, "mounttest-user", "1.0"}
 	configs[Nautilus] = Config{e2eRegistry, "nautilus", "1.0"}
 	configs[NFSProvisioner] = Config{quayIncubator, "nfs-provisioner", "v2.2.2"}
 	configs[Nginx] = Config{dockerLibraryRegistry, "nginx", "1.14-alpine"}

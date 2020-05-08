@@ -44,6 +44,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
 	toolswatch "k8s.io/client-go/tools/watch"
+	"k8s.io/component-base/configz"
 	"k8s.io/component-base/metrics"
 	"k8s.io/kubernetes/pkg/features"
 	"k8s.io/kubernetes/pkg/proxy"
@@ -55,7 +56,6 @@ import (
 	proxymetrics "k8s.io/kubernetes/pkg/proxy/metrics"
 	"k8s.io/kubernetes/pkg/proxy/userspace"
 	proxyutiliptables "k8s.io/kubernetes/pkg/proxy/util/iptables"
-	"k8s.io/kubernetes/pkg/util/configz"
 	utilipset "k8s.io/kubernetes/pkg/util/ipset"
 	utiliptables "k8s.io/kubernetes/pkg/util/iptables"
 	utilipvs "k8s.io/kubernetes/pkg/util/ipvs"
@@ -91,10 +91,10 @@ func newProxyServer(
 		return nil, fmt.Errorf("unable to register configz: %s", err)
 	}
 
-	protocol := utiliptables.ProtocolIpv4
+	protocol := utiliptables.ProtocolIPv4
 	if net.ParseIP(config.BindAddress).To4() == nil {
 		klog.V(0).Infof("IPv6 bind address (%s), assume IPv6 operation", config.BindAddress)
-		protocol = utiliptables.ProtocolIpv6
+		protocol = utiliptables.ProtocolIPv6
 	}
 
 	var iptInterface utiliptables.Interface
@@ -199,12 +199,12 @@ func newProxyServer(
 			// Create iptables handlers for both families, one is already created
 			// Always ordered as IPv4, IPv6
 			var ipt [2]utiliptables.Interface
-			if iptInterface.IsIpv6() {
+			if iptInterface.IsIPv6() {
 				ipt[1] = iptInterface
-				ipt[0] = utiliptables.New(execer, utiliptables.ProtocolIpv4)
+				ipt[0] = utiliptables.New(execer, utiliptables.ProtocolIPv4)
 			} else {
 				ipt[0] = iptInterface
-				ipt[1] = utiliptables.New(execer, utiliptables.ProtocolIpv6)
+				ipt[1] = utiliptables.New(execer, utiliptables.ProtocolIPv6)
 			}
 
 			// Always ordered to match []ipt
@@ -267,12 +267,12 @@ func newProxyServer(
 			// Create iptables handlers for both families, one is already created
 			// Always ordered as IPv4, IPv6
 			var ipt [2]utiliptables.Interface
-			if iptInterface.IsIpv6() {
+			if iptInterface.IsIPv6() {
 				ipt[1] = iptInterface
-				ipt[0] = utiliptables.New(execer, utiliptables.ProtocolIpv4)
+				ipt[0] = utiliptables.New(execer, utiliptables.ProtocolIPv4)
 			} else {
 				ipt[0] = iptInterface
-				ipt[1] = utiliptables.New(execer, utiliptables.ProtocolIpv6)
+				ipt[1] = utiliptables.New(execer, utiliptables.ProtocolIPv6)
 			}
 
 			nodeIPs := nodeIPTuple(config.BindAddress)
