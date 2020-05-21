@@ -19,6 +19,7 @@ package cmd
 import (
 	"fmt"
 	"io"
+	"k8s.io/kubernetes/pkg/kubelet/kubeletconfig/util/log"
 	"net"
 	"os"
 	"strconv"
@@ -258,13 +259,19 @@ func RunCreateToken(out io.Writer, client clientset.Interface, cfgPath string, i
 		return err
 	}
 
+	// Get initConfigation from the cluster, ready for judging the apiserver-ha
+	remoteInitConfiguration, err := configutil.FetchInitConfigurationFromCluster(client, os.Stdout, "preflight", true)
+
 	// if --print-join-command was specified, print a machine-readable full `kubeadm join` command
 	// otherwise, just print the token
 	if printJoinCommand {
 		skipTokenPrint := false
 
 		var realApisever, joinCommand string
-		if clusterCfg.ApiserverHA.Enable {
+		log.Infof("internalcfg.ClusterConfiguration.ApiserverHA: %+v", internalcfg.ClusterConfiguration.ApiserverHA)
+		log.Infof("initCfg.LocalAPIEndpoint: %+v", initCfg.LocalAPIEndpoint)
+
+		if remoteInitConfiguration.ClusterConfiguration.ApiserverHA.Enable {
 			realApisever = net.JoinHostPort(initCfg.LocalAPIEndpoint.AdvertiseAddress, strconv.Itoa(int(initCfg.LocalAPIEndpoint.BindPort)))
 		}
 

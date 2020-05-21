@@ -156,6 +156,11 @@ func RetrieveValidatedConfigInfo(cfg *kubeadmapi.JoinConfiguration) (*clientcmda
 		return nil, err
 	}
 
+	// modify all cluster APIServerEndpoint point to the APIServerEndpoint from BootstrapToken
+	for k, _ := range baseKubeConfig.Clusters {
+		baseKubeConfig.Clusters[k].Server = fmt.Sprintf("https://%s", cfg.Discovery.BootstrapToken.APIServerEndpoint)
+	}
+
 	return baseKubeConfig, nil
 }
 

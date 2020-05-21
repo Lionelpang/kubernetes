@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"crypto/x509"
 	"html/template"
+	"k8s.io/kubernetes/pkg/kubelet/kubeletconfig/util/log"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -84,6 +85,7 @@ func getJoinCommand(kubeConfigFile, token, key, haControlPlane string, controlPl
 
 	// add for apiserverHa
 	var controlPlaneHostPort string
+	log.Infof("controlPlaneHostPort: %s", controlPlaneHostPort)
 	if haControlPlane != "" {
 		controlPlaneHostPort = haControlPlane
 	} else {
