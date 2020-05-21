@@ -154,7 +154,8 @@ const (
 	ControllerManagerKubeConfigFileName = "controller-manager.conf"
 	// SchedulerKubeConfigFileName defines the file name for the scheduler's kubeconfig file
 	SchedulerKubeConfigFileName = "scheduler.conf"
-
+	// ApiserverHaKubeConfigFileName defines the file name for apiserver-ha's kubeconfig file
+	ApiserverHaKubeConfigFileName = "apiserver-ha.conf"
 	// Some well-known users and groups in the core Kubernetes authorization system
 
 	// ControllerManagerUser defines the well-known user the controller-manager should be authenticated as

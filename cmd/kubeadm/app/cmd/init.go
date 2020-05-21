@@ -19,8 +19,10 @@ package cmd
 import (
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"text/template"
 
 	"github.com/lithammer/dedent"
@@ -39,6 +41,7 @@ import (
 	cmdutil "k8s.io/kubernetes/cmd/kubeadm/app/cmd/util"
 	kubeadmconstants "k8s.io/kubernetes/cmd/kubeadm/app/constants"
 	"k8s.io/kubernetes/cmd/kubeadm/app/features"
+	pash "k8s.io/kubernetes/cmd/kubeadm/app/phases/apiserverha"
 	certsphase "k8s.io/kubernetes/cmd/kubeadm/app/phases/certs"
 	kubeconfigphase "k8s.io/kubernetes/cmd/kubeadm/app/phases/kubeconfig"
 	"k8s.io/kubernetes/cmd/kubeadm/app/util/apiclient"
@@ -172,6 +175,7 @@ func NewCmdInit(out io.Writer, initOptions *initOptions) *cobra.Command {
 
 	// initialize the workflow runner with the list of phases
 	initRunner.AppendPhase(phases.NewPreflightPhase())
+	initRunner.AppendPhase(phases.NewApiserverHaPreflightPhase())
 	initRunner.AppendPhase(phases.NewKubeletStartPhase())
 	initRunner.AppendPhase(phases.NewCertsPhase())
 	initRunner.AppendPhase(phases.NewKubeConfigPhase())
@@ -184,6 +188,7 @@ func NewCmdInit(out io.Writer, initOptions *initOptions) *cobra.Command {
 	initRunner.AppendPhase(phases.NewBootstrapTokenPhase())
 	initRunner.AppendPhase(phases.NewKubeletFinalizePhase())
 	initRunner.AppendPhase(phases.NewAddonPhase())
+	initRunner.AppendPhase(phases.NewApiserverHaPhase())
 
 	// sets the data builder function, that will be used by the runner
 	// both when running the entire workflow or single phases
@@ -249,6 +254,17 @@ func AddClusterConfigFlags(flagSet *flag.FlagSet, cfg *kubeadmapiv1beta2.Cluster
 		&cfg.APIServer.CertSANs, options.APIServerCertSANs, cfg.APIServer.CertSANs,
 		`Optional extra Subject Alternative Names (SANs) to use for the API Server serving certificate. Can be both IP addresses and DNS names.`,
 	)
+
+	flagSet.BoolVar(
+		&cfg.ApiserverHA.Enable, options.ApiserverHA, false,
+		`config the apiserverHa phase, true is open, false is not open the apiserverHa mod.On this version,it's support IPVS mode.`,
+	)
+
+	flagSet.StringVar(
+		&cfg.ApiserverHA.Image, options.ApiserverHAImage, "pangmingshi/apiserver-ha:latest",
+		`config the apiserverHa image, default pangmingshi/apiserver-ha:latest.On this version,it's support IPVS mode.`,
+	)
+
 	options.AddFeatureGatesStringFlag(flagSet, featureGatesString)
 }
 
@@ -394,6 +410,15 @@ func newInitData(cmd *cobra.Command, args []string, options *initOptions, out io
 
 	if options.uploadCerts && (externalCA || externalFrontProxyCA) {
 		return nil, errors.New("can't use upload-certs with an external CA or an external front-proxy CA")
+	}
+
+	// if the cluster apisever ha open, them change the contrlPlan first ip to the serverSub
+	if cfg.ClusterConfiguration.ApiserverHA.Enable {
+		controlPlaneEndpoint, err := pash.GetApiserverHaControlPlan(cfg.Networking.ServiceSubnet, cfg.FeatureGates)
+		if err != nil {
+			return nil, errors.New("Create the apiserver-ha controlPlaneEndpoint fails")
+		}
+		cfg.ControlPlaneEndpoint = controlPlaneEndpoint
 	}
 
 	return &initData{
@@ -547,13 +572,13 @@ func (d *initData) KustomizeDir() string {
 	return d.kustomizeDir
 }
 
-func printJoinCommand(out io.Writer, adminKubeConfigPath, token string, i *initData) error {
-	joinControlPlaneCommand, err := cmdutil.GetJoinControlPlaneCommand(adminKubeConfigPath, token, i.CertificateKey(), i.skipTokenPrint, i.skipCertificateKeyPrint)
+func printJoinCommand(out io.Writer, adminKubeConfigPath, token, haControlPlane string, i *initData) error {
+	joinControlPlaneCommand, err := cmdutil.GetJoinControlPlaneCommand(adminKubeConfigPath, token, i.CertificateKey(), haControlPlane, i.skipTokenPrint, i.skipCertificateKeyPrint)
 	if err != nil {
 		return err
 	}
 
-	joinWorkerCommand, err := cmdutil.GetJoinWorkerCommand(adminKubeConfigPath, token, i.skipTokenPrint)
+	joinWorkerCommand, err := cmdutil.GetJoinWorkerCommand(adminKubeConfigPath, token, haControlPlane, i.skipTokenPrint)
 	if err != nil {
 		return err
 	}
@@ -572,10 +597,15 @@ func printJoinCommand(out io.Writer, adminKubeConfigPath, token string, i *initD
 // showJoinCommand prints the join command after all the phases in init have finished
 func showJoinCommand(i *initData, out io.Writer) error {
 	adminKubeConfigPath := i.KubeConfigPath()
+	var haControlPlane string
+	if i.cfg.ApiserverHA.Enable {
+		// open the apiserver the build the apiserver
+		haControlPlane = net.JoinHostPort(i.cfg.LocalAPIEndpoint.AdvertiseAddress, strconv.Itoa(int(i.cfg.LocalAPIEndpoint.BindPort)))
+	}
 
 	// Prints the join command, multiple times in case the user has multiple tokens
 	for _, token := range i.Tokens() {
-		if err := printJoinCommand(out, adminKubeConfigPath, token, i); err != nil {
+		if err := printJoinCommand(out, adminKubeConfigPath, token, haControlPlane, i); err != nil {
 			return errors.Wrap(err, "failed to print join command")
 		}
 	}

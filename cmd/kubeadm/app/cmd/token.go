@@ -19,7 +19,9 @@ package cmd
 import (
 	"fmt"
 	"io"
+	"net"
 	"os"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -260,9 +262,15 @@ func RunCreateToken(out io.Writer, client clientset.Interface, cfgPath string, i
 	// otherwise, just print the token
 	if printJoinCommand {
 		skipTokenPrint := false
+
+		var realApisever, joinCommand string
+		if clusterCfg.ApiserverHA.Enable {
+			realApisever = net.JoinHostPort(initCfg.LocalAPIEndpoint.AdvertiseAddress, strconv.Itoa(int(initCfg.LocalAPIEndpoint.BindPort)))
+		}
+
 		if certificateKey != "" {
 			skipCertificateKeyPrint := false
-			joinCommand, err := cmdutil.GetJoinControlPlaneCommand(kubeConfigFile, internalcfg.BootstrapTokens[0].Token.String(), certificateKey, skipTokenPrint, skipCertificateKeyPrint)
+			joinCommand, err = cmdutil.GetJoinControlPlaneCommand(kubeConfigFile, internalcfg.BootstrapTokens[0].Token.String(), certificateKey, realApisever, skipTokenPrint, skipCertificateKeyPrint)
 			if err != nil {
 				return errors.Wrap(err, "failed to get join command")
 			}
@@ -270,7 +278,7 @@ func RunCreateToken(out io.Writer, client clientset.Interface, cfgPath string, i
 			joinCommand = strings.ReplaceAll(joinCommand, "\t", "")
 			fmt.Fprintln(out, joinCommand)
 		} else {
-			joinCommand, err := cmdutil.GetJoinWorkerCommand(kubeConfigFile, internalcfg.BootstrapTokens[0].Token.String(), skipTokenPrint)
+			joinCommand, err = cmdutil.GetJoinWorkerCommand(kubeConfigFile, internalcfg.BootstrapTokens[0].Token.String(), realApisever, skipTokenPrint)
 			if err != nil {
 				return errors.Wrap(err, "failed to get join command")
 			}

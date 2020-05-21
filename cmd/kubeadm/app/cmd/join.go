@@ -143,6 +143,7 @@ type joinData struct {
 	ignorePreflightErrors sets.String
 	outputWriter          io.Writer
 	kustomizeDir          string
+	apiserverHaCerKey     string
 }
 
 // NewCmdJoin returns "kubeadm join" command.
@@ -340,6 +341,12 @@ func newJoinData(cmd *cobra.Command, args []string, opt *joinOptions, out io.Wri
 		opt.externalcfg.Discovery.BootstrapToken.APIServerEndpoint = args[0]
 	}
 
+	// add for apiserver ha
+	var apiserverHaCerKey string
+	if opt.externalcfg.ControlPlane.CertificateKey != "" {
+		apiserverHaCerKey = opt.externalcfg.ControlPlane.CertificateKey
+	}
+
 	// if not joining a control plane, unset the ControlPlane object
 	if !opt.controlPlane {
 		if opt.externalcfg.ControlPlane != nil {
@@ -417,6 +424,7 @@ func newJoinData(cmd *cobra.Command, args []string, opt *joinOptions, out io.Wri
 		ignorePreflightErrors: ignorePreflightErrorsSet,
 		outputWriter:          out,
 		kustomizeDir:          opt.kustomizeDir,
+		apiserverHaCerKey:     apiserverHaCerKey,
 	}, nil
 }
 
@@ -426,6 +434,10 @@ func (j *joinData) CertificateKey() string {
 		return j.cfg.ControlPlane.CertificateKey
 	}
 	return ""
+}
+
+func (j *joinData) ApiserverHaCert() string {
+	return j.apiserverHaCerKey
 }
 
 // Cfg returns the JoinConfiguration.

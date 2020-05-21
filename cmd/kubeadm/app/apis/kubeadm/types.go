@@ -123,6 +123,9 @@ type ClusterConfiguration struct {
 
 	// The cluster name
 	ClusterName string
+
+	// apiserver ha
+	ApiserverHA ApiserverHA
 }
 
 // ControlPlaneComponent holds settings common to control plane component of the cluster
@@ -145,6 +148,11 @@ type APIServer struct {
 
 	// TimeoutForControlPlane controls the timeout that we use for API server to appear
 	TimeoutForControlPlane *metav1.Duration
+}
+
+type ApiserverHA struct {
+	Enable bool
+	Image  string
 }
 
 // DNSAddOnType defines string identifying DNS add-on types

@@ -217,17 +217,7 @@ func getDataFromDisk(cfg *kubeadmapi.InitConfiguration, key []byte) (map[string]
 func DownloadCerts(client clientset.Interface, cfg *kubeadmapi.InitConfiguration, key string) error {
 	fmt.Printf("[download-certs] Downloading the certificates in Secret %q in the %q Namespace\n", kubeadmconstants.KubeadmCertsSecret, metav1.NamespaceSystem)
 
-	decodedKey, err := hex.DecodeString(key)
-	if err != nil {
-		return errors.Wrap(err, "error decoding certificate key")
-	}
-
-	secret, err := getSecret(client)
-	if err != nil {
-		return errors.Wrap(err, "error downloading the secret")
-	}
-
-	secretData, err := getDataFromSecret(secret, decodedKey)
+	secretData, err := GetCerts(client, key)
 	if err != nil {
 		return errors.Wrap(err, "error decoding secret data with provided key")
 	}
@@ -247,6 +237,25 @@ func DownloadCerts(client clientset.Interface, cfg *kubeadmapi.InitConfiguration
 	}
 
 	return nil
+}
+
+func GetCerts(client clientset.Interface, key string) (map[string][]byte, error) {
+	decodedKey, err := hex.DecodeString(key)
+	if err != nil {
+		return nil, errors.Wrapf(err, "error decoding certificate key, key:%s", key)
+	}
+
+	secret, err := getSecret(client)
+	if err != nil {
+		return nil, errors.Wrap(err, "error downloading the secret")
+	}
+
+	secretData, err := getDataFromSecret(secret, decodedKey)
+	if err != nil {
+		return nil, errors.Wrap(err, "error decoding secret data with provided key")
+	}
+
+	return secretData, nil
 }
 
 func writeCertOrKey(certOrKeyPath string, certOrKeyData []byte) error {

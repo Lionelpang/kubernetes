@@ -145,4 +145,8 @@ const (
 
 	// Kustomize flag sets the folder where kustomize patches for static pod manifest are stored
 	Kustomize = "experimental-kustomize"
+
+	// apiserver ha flag
+	ApiserverHA      = "apiserver-ha"
+	ApiserverHAImage = "apiserver-ha-image"
 )

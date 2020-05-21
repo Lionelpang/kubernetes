@@ -37,17 +37,17 @@ var joinCommandTemplate = template.Must(template.New("join").Parse(`` +
 
 // GetJoinWorkerCommand returns the kubeadm join command for a given token and
 // and Kubernetes cluster (the current cluster in the kubeconfig file)
-func GetJoinWorkerCommand(kubeConfigFile, token string, skipTokenPrint bool) (string, error) {
-	return getJoinCommand(kubeConfigFile, token, "", false, skipTokenPrint, false)
+func GetJoinWorkerCommand(kubeConfigFile, token, haControlPlane string, skipTokenPrint bool) (string, error) {
+	return getJoinCommand(kubeConfigFile, token, "", haControlPlane, false, skipTokenPrint, false)
 }
 
 // GetJoinControlPlaneCommand returns the kubeadm join command for a given token and
 // and Kubernetes cluster (the current cluster in the kubeconfig file)
-func GetJoinControlPlaneCommand(kubeConfigFile, token, key string, skipTokenPrint, skipCertificateKeyPrint bool) (string, error) {
-	return getJoinCommand(kubeConfigFile, token, key, true, skipTokenPrint, skipCertificateKeyPrint)
+func GetJoinControlPlaneCommand(kubeConfigFile, token, key, haControlPlane string, skipTokenPrint, skipCertificateKeyPrint bool) (string, error) {
+	return getJoinCommand(kubeConfigFile, token, key, haControlPlane, true, skipTokenPrint, skipCertificateKeyPrint)
 }
 
-func getJoinCommand(kubeConfigFile, token, key string, controlPlane, skipTokenPrint, skipCertificateKeyPrint bool) (string, error) {
+func getJoinCommand(kubeConfigFile, token, key, haControlPlane string, controlPlane, skipTokenPrint, skipCertificateKeyPrint bool) (string, error) {
 	// load the kubeconfig file to get the CA certificate and endpoint
 	config, err := clientcmd.LoadFromFile(kubeConfigFile)
 	if err != nil {
@@ -82,10 +82,18 @@ func getJoinCommand(kubeConfigFile, token, key string, controlPlane, skipTokenPr
 		publicKeyPins = append(publicKeyPins, pubkeypin.Hash(caCert))
 	}
 
+	// add for apiserverHa
+	var controlPlaneHostPort string
+	if haControlPlane != "" {
+		controlPlaneHostPort = haControlPlane
+	} else {
+		controlPlaneHostPort = strings.Replace(clusterConfig.Server, "https://", "", -1)
+	}
+
 	ctx := map[string]interface{}{
 		"Token":                token,
 		"CAPubKeyPins":         publicKeyPins,
-		"ControlPlaneHostPort": strings.Replace(clusterConfig.Server, "https://", "", -1),
+		"ControlPlaneHostPort": controlPlaneHostPort,
 		"CertificateKey":       key,
 		"ControlPlane":         controlPlane,
 	}
