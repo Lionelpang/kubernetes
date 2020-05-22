@@ -15,6 +15,7 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	certutil "k8s.io/client-go/util/cert"
 	"k8s.io/client-go/util/keyutil"
+	"k8s.io/klog"
 	"k8s.io/kubernetes/cmd/kubeadm/app/cmd/options"
 	cmdutil "k8s.io/kubernetes/cmd/kubeadm/app/cmd/util"
 	constants "k8s.io/kubernetes/cmd/kubeadm/app/constants"
@@ -25,6 +26,7 @@ import (
 	"k8s.io/kubernetes/cmd/kubeadm/app/util/pkiutil"
 	staticpodutil "k8s.io/kubernetes/cmd/kubeadm/app/util/staticpod"
 	"k8s.io/kubernetes/pkg/kubelet/kubeletconfig/util/log"
+	ipvs "k8s.io/kubernetes/pkg/proxy/ipvs"
 	utilnet "k8s.io/utils/net"
 	"net"
 	"path/filepath"
@@ -187,6 +189,12 @@ func WriteIpvs(virtualServer, realServer string) error {
 		return err
 	}
 
+	remoteRs, _ := service.GetRealServer(virtualServer, realServer)
+	if remoteRs != nil {
+		// if the vs is exist
+		service.DeleteVirtualServer(virtualServer)
+	}
+
 	err = service.CreateRealServer(virtualServer, realServer)
 	if err != nil {
 		log.Errorf("apiserverha add the real server error with the ipvs: %+v", err)
@@ -286,4 +294,16 @@ func trancePrivateKey(privKey interface{}) (crypto.Signer, error) {
 	}
 
 	return key, nil
+}
+
+func CreateDevAndBindIP() error {
+	// Delete dummy interface created by ipvs Proxier.
+	nl := ipvs.NewNetLinkHandle(false)
+	err := nl.DeleteDummyDevice(ipvs.DefaultDummyDevice)
+	if err != nil {
+		log.Errorf("Error deleting dummy device %s created by IPVS proxier: %v", ipvs.DefaultDummyDevice, err)
+		return errors.Wrap(err, "Error deleting dummy device ")
+	}
+
+	return nil
 }

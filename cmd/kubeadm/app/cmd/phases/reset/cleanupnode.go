@@ -81,7 +81,7 @@ func runCleanupNode(c workflow.RunData) error {
 		klog.Warningf("[reset] Failed to remove containers: %v\n", err)
 	}
 
-	r.AddDirsToClean("/var/lib/dockershim", "/var/run/kubernetes", "/var/lib/cni")
+	r.AddDirsToClean("/var/lib/dockershim", "/var/run/kubernetes", "/var/lib/cni", "/var/lib/apiserver-ha")
 
 	// Remove contents from the config and pki directories
 	klog.V(1).Infoln("[reset] Removing contents from the config and pki directories")
@@ -138,6 +138,7 @@ func resetConfigDir(configPathDir, pkiPathDir string) {
 		filepath.Join(configPathDir, kubeadmconstants.KubeletBootstrapKubeConfigFileName),
 		filepath.Join(configPathDir, kubeadmconstants.ControllerManagerKubeConfigFileName),
 		filepath.Join(configPathDir, kubeadmconstants.SchedulerKubeConfigFileName),
+		filepath.Join(configPathDir, kubeadmconstants.ApiserverHaKubeConfigFileName),
 	}
 	fmt.Printf("[reset] Deleting files: %v\n", filesToClean)
 	for _, path := range filesToClean {
