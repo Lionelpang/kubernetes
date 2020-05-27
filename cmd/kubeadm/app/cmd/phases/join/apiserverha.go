@@ -5,7 +5,6 @@ import (
 	"k8s.io/kubernetes/cmd/kubeadm/app/cmd/phases/workflow"
 	pash "k8s.io/kubernetes/cmd/kubeadm/app/phases/apiserverha"
 	kubeconfigutil "k8s.io/kubernetes/cmd/kubeadm/app/util/kubeconfig"
-	// kubeconfigutil "k8s.io/kubernetes/cmd/kubeadm/app/util/kubeconfig"
 )
 
 func NewApiserverHaPhase() workflow.Phase {
@@ -60,6 +59,39 @@ func runApiserverHaPhase(c workflow.RunData) error {
 		log.Errorf("apiserverha write the kubeconfig and staicpod yaml fails %v", err)
 		return err
 	}
+	/*
+		// create the iptable for the network.
+		remoteInitConfiguration, err := configutil.FetchInitConfigurationFromCluster(client, os.Stdout, "preflight", true)
+		if err != nil {
+			return err
+		}
+
+		IPTablesDropBit := int32(15)
+		IPTablesMasqueradeBit := int32(14)
+		if remoteInitConfiguration.ComponentConfigs.Kubelet != nil &&  remoteInitConfiguration.ComponentConfigs.Kubelet.IPTablesDropBit != nil {
+			IPTablesDropBit = *remoteInitConfiguration.ComponentConfigs.Kubelet.IPTablesDropBit
+		}
+
+		if remoteInitConfiguration.ComponentConfigs.Kubelet != nil &&  remoteInitConfiguration.ComponentConfigs.Kubelet.IPTablesMasqueradeBit != nil {
+			IPTablesMasqueradeBit = *remoteInitConfiguration.ComponentConfigs.Kubelet.IPTablesMasqueradeBit
+		}
+
+		network := pash.NewAipserverHaNetwork(initCfg.LocalAPIEndpoint.AdvertiseAddress,
+			int(IPTablesDropBit),
+			int(IPTablesMasqueradeBit))
+		err = network.InitNetworkUtil()
+		if err != nil {
+			return err
+		}
+
+		ip, _, err := net.SplitHostPort(initCfg.ControlPlaneEndpoint)
+		if err != nil {
+			return errors.Wrap(err, "apiserver write the ipvs fails.")
+		}
+		err = pash.CreateDev(ip)
+		if err != nil {
+			return err
+		}*/
 
 	return nil
 }

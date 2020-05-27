@@ -15,7 +15,6 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	certutil "k8s.io/client-go/util/cert"
 	"k8s.io/client-go/util/keyutil"
-	"k8s.io/klog"
 	"k8s.io/kubernetes/cmd/kubeadm/app/cmd/options"
 	cmdutil "k8s.io/kubernetes/cmd/kubeadm/app/cmd/util"
 	constants "k8s.io/kubernetes/cmd/kubeadm/app/constants"
@@ -296,13 +295,19 @@ func trancePrivateKey(privKey interface{}) (crypto.Signer, error) {
 	return key, nil
 }
 
-func CreateDevAndBindIP() error {
-	// Delete dummy interface created by ipvs Proxier.
+func CreateDev(ip string) error {
 	nl := ipvs.NewNetLinkHandle(false)
-	err := nl.DeleteDummyDevice(ipvs.DefaultDummyDevice)
+	_, err := nl.EnsureDummyDevice(ipvs.DefaultDummyDevice)
+
 	if err != nil {
-		log.Errorf("Error deleting dummy device %s created by IPVS proxier: %v", ipvs.DefaultDummyDevice, err)
-		return errors.Wrap(err, "Error deleting dummy device ")
+		log.Errorf("cerate the dev(%s) fails", ipvs.DefaultDummyDevice)
+		return err
+	}
+
+	_, err = nl.EnsureAddressBind(ip, ipvs.DefaultDummyDevice)
+	if err != nil {
+		log.Errorf("binding ip to dev(%s) fails", ipvs.DefaultDummyDevice)
+		return err
 	}
 
 	return nil

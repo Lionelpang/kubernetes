@@ -117,6 +117,15 @@ func RunApiserverHaPreflightPhase(c workflow.RunData) error {
 		return errors.Wrap(err, "apiserver write the ipvs fails.")
 	}
 
+	ip, _, err := net.SplitHostPort(controlPlaneEndpoint)
+	if err != nil {
+		return errors.Wrap(err, "apiserver write the ipvs fails.")
+	}
+	err = pash.CreateDev(ip)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
