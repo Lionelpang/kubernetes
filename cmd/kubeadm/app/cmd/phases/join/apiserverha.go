@@ -41,10 +41,9 @@ func runApiserverHaPhase(c workflow.RunData) error {
 		return nil
 	}
 
-	// write the ipvs to point to the real server
-	err = pash.WriteIpvs(initCfg.ControlPlaneEndpoint, data.Cfg().Discovery.BootstrapToken.APIServerEndpoint)
+	err = pash.RunProxyContainer(data.Cfg().Discovery.BootstrapToken.APIServerEndpoint, initCfg.ApiserverHA.Image)
 	if err != nil {
-		log.Errorf("write the ipvs error %v", err)
+		log.Errorf("create the native proxy error %+v", err)
 		return err
 	}
 
@@ -53,45 +52,12 @@ func runApiserverHaPhase(c workflow.RunData) error {
 		CertificateKey: data.ApiserverHaCert(),
 	}
 	err = pash.BuildApiserverHaNode(initCfg.ClusterName, initCfg.ControlPlaneEndpoint,
-		data.Cfg().Discovery.BootstrapToken.APIServerEndpoint, initCfg.Networking.ServiceSubnet,
+		data.Cfg().Discovery.BootstrapToken.APIServerEndpoint,
 		initCfg.ClusterConfiguration.ApiserverHA.Image, remoteLoader)
 	if err != nil {
 		log.Errorf("apiserverha write the kubeconfig and staicpod yaml fails %v", err)
 		return err
 	}
-	/*
-		// create the iptable for the network.
-		remoteInitConfiguration, err := configutil.FetchInitConfigurationFromCluster(client, os.Stdout, "preflight", true)
-		if err != nil {
-			return err
-		}
-
-		IPTablesDropBit := int32(15)
-		IPTablesMasqueradeBit := int32(14)
-		if remoteInitConfiguration.ComponentConfigs.Kubelet != nil &&  remoteInitConfiguration.ComponentConfigs.Kubelet.IPTablesDropBit != nil {
-			IPTablesDropBit = *remoteInitConfiguration.ComponentConfigs.Kubelet.IPTablesDropBit
-		}
-
-		if remoteInitConfiguration.ComponentConfigs.Kubelet != nil &&  remoteInitConfiguration.ComponentConfigs.Kubelet.IPTablesMasqueradeBit != nil {
-			IPTablesMasqueradeBit = *remoteInitConfiguration.ComponentConfigs.Kubelet.IPTablesMasqueradeBit
-		}
-
-		network := pash.NewAipserverHaNetwork(initCfg.LocalAPIEndpoint.AdvertiseAddress,
-			int(IPTablesDropBit),
-			int(IPTablesMasqueradeBit))
-		err = network.InitNetworkUtil()
-		if err != nil {
-			return err
-		}
-
-		ip, _, err := net.SplitHostPort(initCfg.ControlPlaneEndpoint)
-		if err != nil {
-			return errors.Wrap(err, "apiserver write the ipvs fails.")
-		}
-		err = pash.CreateDev(ip)
-		if err != nil {
-			return err
-		}*/
 
 	return nil
 }

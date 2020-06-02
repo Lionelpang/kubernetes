@@ -11,6 +11,7 @@ import (
 	kubeadmconstants "k8s.io/kubernetes/cmd/kubeadm/app/constants"
 	pash "k8s.io/kubernetes/cmd/kubeadm/app/phases/apiserverha"
 	"k8s.io/kubernetes/cmd/kubeadm/app/util/apiclient"
+	"k8s.io/kubernetes/pkg/kubelet/kubeletconfig/util/log"
 	"net"
 	"strconv"
 )
@@ -101,28 +102,10 @@ func RunApiserverHaPreflightPhase(c workflow.RunData) error {
 		return nil
 	}
 
-	// todo check the apiserver work on the ipvs mode
-
-	// write the ipvs into the system
-	controlPlaneEndpoint, err := pash.GetApiserverHaControlPlan(data.Cfg().Networking.ServiceSubnet,
-		data.Cfg().FeatureGates)
+	err := pash.RunProxyContainer(net.JoinHostPort(data.Cfg().LocalAPIEndpoint.AdvertiseAddress,
+		strconv.Itoa(int(data.Cfg().LocalAPIEndpoint.BindPort))), data.Cfg().ApiserverHA.Image)
 	if err != nil {
-		return errors.Wrap(err, "Create the apiserver-ha controlPlaneEndpoint fails")
-	}
-
-	err = pash.WriteIpvs(controlPlaneEndpoint, net.JoinHostPort(data.Cfg().LocalAPIEndpoint.AdvertiseAddress,
-		strconv.Itoa(int(data.Cfg().LocalAPIEndpoint.BindPort))))
-
-	if err != nil {
-		return errors.Wrap(err, "apiserver write the ipvs fails.")
-	}
-
-	ip, _, err := net.SplitHostPort(controlPlaneEndpoint)
-	if err != nil {
-		return errors.Wrap(err, "apiserver write the ipvs fails.")
-	}
-	err = pash.CreateDev(ip)
-	if err != nil {
+		log.Errorf("create the native proxy error %+v", err)
 		return err
 	}
 
@@ -157,7 +140,7 @@ func RunApiserverHaPhase(c workflow.RunData) error {
 	}
 
 	err = pash.BuildApiserverHaNode(data.Cfg().ClusterName, data.Cfg().ControlPlaneEndpoint, apiserverRealEndpoint,
-		data.Cfg().Networking.ServiceSubnet, data.Cfg().ClusterConfiguration.ApiserverHA.Image, remoteLoader)
+		data.Cfg().ClusterConfiguration.ApiserverHA.Image, remoteLoader)
 	err = craeteApiserverHaUserRoleAndBinding(client)
 	if err != nil {
 		return errors.Errorf("create apiserverhs node fails, %v", err)

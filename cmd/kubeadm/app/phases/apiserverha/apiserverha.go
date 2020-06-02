@@ -6,12 +6,8 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"fmt"
-	apiserverhaApp "github.com/Lionelpang/kube-apiserver-ha/app"
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clientset "k8s.io/client-go/kubernetes"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	certutil "k8s.io/client-go/util/cert"
 	"k8s.io/client-go/util/keyutil"
@@ -19,15 +15,12 @@ import (
 	cmdutil "k8s.io/kubernetes/cmd/kubeadm/app/cmd/util"
 	constants "k8s.io/kubernetes/cmd/kubeadm/app/constants"
 	kubeadmconstants "k8s.io/kubernetes/cmd/kubeadm/app/constants"
-	"k8s.io/kubernetes/cmd/kubeadm/app/features"
-	"k8s.io/kubernetes/cmd/kubeadm/app/phases/copycerts"
 	kubeconfigutil "k8s.io/kubernetes/cmd/kubeadm/app/util/kubeconfig"
 	"k8s.io/kubernetes/cmd/kubeadm/app/util/pkiutil"
 	staticpodutil "k8s.io/kubernetes/cmd/kubeadm/app/util/staticpod"
 	"k8s.io/kubernetes/pkg/kubelet/kubeletconfig/util/log"
-	ipvs "k8s.io/kubernetes/pkg/proxy/ipvs"
-	utilnet "k8s.io/utils/net"
-	"net"
+	utilsexec "k8s.io/utils/exec"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -39,10 +32,9 @@ var apiserverHAExample = cmdutil.Examples(`
 `)
 
 const (
-	ApiserverHaKubeconfContainerPath   = "/etc/kubernetes/"
-	ApiserverHaConfigFileHostPath      = "/var/lib/apiserver-ha/"
-	ApiserverHaConfigFileContainerPath = "/var/lib/" + options.ApiserverHA + "/"
-	ApiserverHaConfigFileName          = options.ApiserverHA + ".yaml"
+	ApiserverHaKubeconfContainerPath    = "/etc/kubernetes/"
+	ApiserverHaConfigFileHostPath       = "/var/lib/apiserver-ha/"
+	ApiserverHAProxyConfigContainerPath = "/etc/haproxy/"
 )
 
 type KubeConfigSpec struct {
@@ -55,7 +47,7 @@ type KubeConfigSpec struct {
 
 //////////// build apiserver hs node ///////////
 func BuildApiserverHaNode(clusterName, controlPlaneEndpoint, bootstrapTokenAPIServerEndpoint,
-	serviceSubnet, apiserverHAImage string, loader CertsLoader) error {
+	apiserverHAImage string, loader CertsLoader) error {
 	// create the kubeconfig file into disk
 	kubeConfSpec, err := BuildKubeConfigSpec(clusterName, controlPlaneEndpoint, loader)
 	if err != nil {
@@ -72,7 +64,6 @@ func BuildApiserverHaNode(clusterName, controlPlaneEndpoint, bootstrapTokenAPISe
 	// crate the apiserver-ha static pod
 	err = BuildManifestsAndWriteToDisk(bootstrapTokenAPIServerEndpoint,
 		kubeadmconstants.GetStaticPodDirectory(),
-		serviceSubnet,
 		apiserverHAImage)
 
 	if err != nil {
@@ -83,8 +74,8 @@ func BuildApiserverHaNode(clusterName, controlPlaneEndpoint, bootstrapTokenAPISe
 	return nil
 }
 
-func BuildManifestsAndWriteToDisk(apiserver, manifestDir, serviceSubnet, image string) error {
-	spec := buildStaticPod(apiserver, serviceSubnet, image)
+func BuildManifestsAndWriteToDisk(apiserver, manifestDir, image string) error {
+	spec := buildStaticPod(apiserver, image)
 
 	// writes the StaticPodSpec to disk
 	if err := staticpodutil.WriteStaticPodToDisk(options.ApiserverHA, manifestDir, spec); err != nil {
@@ -93,13 +84,9 @@ func BuildManifestsAndWriteToDisk(apiserver, manifestDir, serviceSubnet, image s
 	return nil
 }
 
-func buildStaticPod(initApiserver, serviceSubnet, image string) v1.Pod {
-	args := []string{"kube-apiserver-ha", strings.Join([]string{"--apiServer", initApiserver}, "="),
-		strings.Join([]string{"--apiserverHaKubeConfig", filepath.Join(ApiserverHaKubeconfContainerPath,
-			constants.ApiserverHaKubeConfigFileName)}, "="),
-		strings.Join([]string{"--haConfigFile",
-			filepath.Join(ApiserverHaConfigFileContainerPath, ApiserverHaConfigFileName)}, "="),
-		strings.Join([]string{"--serviceSubnet", serviceSubnet}, "="),
+func buildStaticPod(initApiserver, image string) v1.Pod {
+	args := []string{
+		strings.Join([]string{"--apiServer", initApiserver}, "="),
 	}
 	// hostpath type for kubeconf file and /var/libe/apiserver-ha
 	hostPathType := v1.HostPathDirectoryOrCreate
@@ -113,9 +100,15 @@ func buildStaticPod(initApiserver, serviceSubnet, image string) v1.Pod {
 	volMountMap["kubeconf"] = kubeVolMount
 
 	varVol := staticpodutil.NewVolume("config-file", ApiserverHaConfigFileHostPath, &hostPathType)
-	varVolMount := staticpodutil.NewVolumeMount("config-file", ApiserverHaConfigFileContainerPath, false)
+	varVolMount := staticpodutil.NewVolumeMount("config-file", ApiserverHAProxyConfigContainerPath, false)
 	volMap["config-file"] = varVol
 	volMountMap["config-file"] = varVolMount
+
+	hostSocketPathType := v1.HostPathSocket
+	dockerSockVol := staticpodutil.NewVolume("docker-sock-file", "/var/run/docker.sock", &hostSocketPathType)
+	dockerSockVolMount := staticpodutil.NewVolumeMount("docker-sock-file", "/var/run/docker.sock", true)
+	volMap["docker-sock-file"] = dockerSockVol
+	volMountMap["docker-sock-file"] = dockerSockVolMount
 
 	// mounts := getHostPathVolumesForTheControlPlane(cfg)
 	private := true
@@ -123,14 +116,13 @@ func buildStaticPod(initApiserver, serviceSubnet, image string) v1.Pod {
 		Name:            options.ApiserverHA,
 		Image:           image,
 		ImagePullPolicy: v1.PullIfNotPresent,
-		Command:         args,
+		Args:            args,
 		VolumeMounts:    staticpodutil.VolumeMountMapToSlice(volMountMap),
 		Resources:       staticpodutil.ComponentResources("250m"),
 		SecurityContext: &v1.SecurityContext{
 			Privileged: &private,
 		},
 	}, volMap)
-
 }
 
 ////////////// kubeconfig implements methos ////////////
@@ -165,7 +157,7 @@ func ApiserverHaServiceUrl(controlPlaneEndpointIPAndPort string) string {
 
 func GetApiserverHaControlPlan(serviceSubnet string, featureGates map[string]bool) (string, error) {
 	// Get the service subnet CIDR
-	svcSubnetCIDR, err := constants.GetKubernetesServiceCIDR(serviceSubnet,
+	/*svcSubnetCIDR, err := constants.GetKubernetesServiceCIDR(serviceSubnet,
 		features.Enabled(featureGates, features.IPv6DualStack))
 	if err != nil {
 		return "", errors.Wrapf(err, "unable to get internal Kubernetes Service IP from the given service CIDR (%s)", serviceSubnet)
@@ -176,36 +168,13 @@ func GetApiserverHaControlPlan(serviceSubnet string, featureGates map[string]boo
 	if err != nil {
 		return "", errors.Wrap(err, "unable to get internal Kubernetes Service IP from the given service CIDR")
 	}
-	return net.JoinHostPort(ip.String(), "443"), nil
-}
-
-////////////// write the ipvs functions ////////////
-func WriteIpvs(virtualServer, realServer string) error {
-	service := apiserverhaApp.BuildService()
-	err := service.CreateVirtualServer(virtualServer)
-	if err != nil {
-		log.Errorf("apiserverha add the virtual server error with the ipvs: %+v", err)
-		return err
-	}
-
-	remoteRs, _ := service.GetRealServer(virtualServer, realServer)
-	if remoteRs != nil {
-		// if the vs is exist
-		service.DeleteVirtualServer(virtualServer)
-	}
-
-	err = service.CreateRealServer(virtualServer, realServer)
-	if err != nil {
-		log.Errorf("apiserverha add the real server error with the ipvs: %+v", err)
-		return err
-	}
-
-	return nil
+	return net.JoinHostPort(ip.String(), "443"), nil*/
+	return "127.0.0.1:8443", nil
 }
 
 ////////////// build kubeConf file functions ////////////
 func BuildKubeConfigSpec(clusterName, ControlPlaneEndpoint string, loader CertsLoader) (*clientcmdapi.Config, error) {
-	certs, key, err := loader.Load() // getCAAndCAKeyFromRemote(client, certificateKey)
+	certs, key, err := loader.Load()
 	if err != nil {
 		log.Errorf("load the ca and cakey from apiserver fails, msg: %+v", err)
 		return nil, err
@@ -247,38 +216,6 @@ func BuildKubeConfigSpec(clusterName, ControlPlaneEndpoint string, loader CertsL
 	), nil
 }
 
-func getCAAndCAKeyFromRemote(client clientset.Interface, certificateKey string) (*x509.Certificate, crypto.Signer, error) {
-	secretData, err := copycerts.GetCerts(client, certificateKey)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil, nil, errors.Errorf("Secret %q was not found in the %q Namespace. This Secret might have expired. Please, run `kubeadm init phase upload-certs --upload-certs` on a control plane to generate a new one",
-				constants.KubeadmCertsSecret, metav1.NamespaceSystem)
-		}
-		return nil, nil, err
-	}
-
-	caCertData := secretData[constants.CACertName]
-	caKeyData := secretData[constants.CAKeyName]
-
-	// certs, err := certutil.ParseCertsPEM(caCertData)
-	certs, err := certutil.ParseCertsPEM(caCertData)
-	if err != nil {
-		return nil, nil, fmt.Errorf("certs parseCertPEM fails.")
-	}
-
-	pemCaKeyData, err := keyutil.ParsePrivateKeyPEM(caKeyData)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "Parse the key to PEM fails")
-	}
-
-	key, err := trancePrivateKey(pemCaKeyData)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "trance the private key fails.")
-	}
-
-	return certs[0], key, nil
-}
-
 // 转换私有key
 func trancePrivateKey(privKey interface{}) (crypto.Signer, error) {
 	// Allow RSA and ECDSA formats only
@@ -295,20 +232,19 @@ func trancePrivateKey(privKey interface{}) (crypto.Signer, error) {
 	return key, nil
 }
 
-func CreateDev(ip string) error {
-	nl := ipvs.NewNetLinkHandle(false)
-	_, err := nl.EnsureDummyDevice(ipvs.DefaultDummyDevice)
-
-	if err != nil {
-		log.Errorf("cerate the dev(%s) fails", ipvs.DefaultDummyDevice)
-		return err
+func RunProxyContainer(apiserver, img string) error {
+	// docker run -it --name apiserverha --network host -v /tmp/haproxy:/var/lib/apiserverha/
+	//apiserver-ha:0.1.0-alpha.1 --apiServer 192.168.3.251:6443 --mod docker
+	if _, err := os.Stat(ApiserverHaConfigFileHostPath); os.IsNotExist(err) {
+		// if the folder is not exist, then create the folder
+		os.MkdirAll(ApiserverHaConfigFileHostPath, 0755)
 	}
 
-	_, err = nl.EnsureAddressBind(ip, ipvs.DefaultDummyDevice)
+	out, err := utilsexec.New().Command("docker", "run", "-d", "--name", "apiserverha",
+		"--network", "host", "-v", fmt.Sprintf("%s:%s", ApiserverHaConfigFileHostPath,
+			ApiserverHAProxyConfigContainerPath), img, "--apiServer", apiserver).CombinedOutput()
 	if err != nil {
-		log.Errorf("binding ip to dev(%s) fails", ipvs.DefaultDummyDevice)
-		return err
+		return errors.Wrapf(err, "output: %s, error", string(out))
 	}
-
 	return nil
 }
