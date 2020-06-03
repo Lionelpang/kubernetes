@@ -414,7 +414,7 @@ func newInitData(cmd *cobra.Command, args []string, options *initOptions, out io
 
 	// if the cluster apisever ha open, them change the contrlPlan first ip to the serverSub
 	if cfg.ClusterConfiguration.ApiserverHA.Enable {
-		controlPlaneEndpoint, err := pash.GetApiserverHaControlPlan(cfg.Networking.ServiceSubnet, cfg.FeatureGates)
+		controlPlaneEndpoint, err := pash.GetApiserverHaControlPlan()
 		if err != nil {
 			return nil, errors.New("Create the apiserver-ha controlPlaneEndpoint fails")
 		}

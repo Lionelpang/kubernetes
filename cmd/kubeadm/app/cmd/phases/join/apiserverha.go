@@ -51,9 +51,14 @@ func runApiserverHaPhase(c workflow.RunData) error {
 		ClientSet:      client,
 		CertificateKey: data.ApiserverHaCert(),
 	}
+
+	controlPlane := false
+	if data.Cfg().ControlPlane != nil {
+		controlPlane = true
+	}
 	err = pash.BuildApiserverHaNode(initCfg.ClusterName, initCfg.ControlPlaneEndpoint,
 		data.Cfg().Discovery.BootstrapToken.APIServerEndpoint,
-		initCfg.ClusterConfiguration.ApiserverHA.Image, remoteLoader)
+		initCfg.ClusterConfiguration.ApiserverHA.Image, remoteLoader, controlPlane)
 	if err != nil {
 		log.Errorf("apiserverha write the kubeconfig and staicpod yaml fails %v", err)
 		return err

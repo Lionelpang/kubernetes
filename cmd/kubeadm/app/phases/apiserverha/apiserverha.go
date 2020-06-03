@@ -47,7 +47,7 @@ type KubeConfigSpec struct {
 
 //////////// build apiserver hs node ///////////
 func BuildApiserverHaNode(clusterName, controlPlaneEndpoint, bootstrapTokenAPIServerEndpoint,
-	apiserverHAImage string, loader CertsLoader) error {
+	apiserverHAImage string, loader CertsLoader, controlPlan bool) error {
 	// create the kubeconfig file into disk
 	kubeConfSpec, err := BuildKubeConfigSpec(clusterName, controlPlaneEndpoint, loader)
 	if err != nil {
@@ -64,7 +64,7 @@ func BuildApiserverHaNode(clusterName, controlPlaneEndpoint, bootstrapTokenAPISe
 	// crate the apiserver-ha static pod
 	err = BuildManifestsAndWriteToDisk(bootstrapTokenAPIServerEndpoint,
 		kubeadmconstants.GetStaticPodDirectory(),
-		apiserverHAImage)
+		apiserverHAImage, controlPlan)
 
 	if err != nil {
 		log.Errorf("Write the Sepc to the disk fails %v", err)
@@ -74,8 +74,8 @@ func BuildApiserverHaNode(clusterName, controlPlaneEndpoint, bootstrapTokenAPISe
 	return nil
 }
 
-func BuildManifestsAndWriteToDisk(apiserver, manifestDir, image string) error {
-	spec := buildStaticPod(apiserver, image)
+func BuildManifestsAndWriteToDisk(apiserver, manifestDir, image string, controlPlan bool) error {
+	spec := buildStaticPod(apiserver, image, controlPlan)
 
 	// writes the StaticPodSpec to disk
 	if err := staticpodutil.WriteStaticPodToDisk(options.ApiserverHA, manifestDir, spec); err != nil {
@@ -84,10 +84,16 @@ func BuildManifestsAndWriteToDisk(apiserver, manifestDir, image string) error {
 	return nil
 }
 
-func buildStaticPod(initApiserver, image string) v1.Pod {
+func buildStaticPod(initApiserver, image string, controlPlan bool) v1.Pod {
 	args := []string{
 		strings.Join([]string{"--apiServer", initApiserver}, "="),
 	}
+
+	if controlPlan {
+		// if is the controlplan, the add the parma telnet the haproxy open the port
+		args = append(args, strings.Join([]string{"--controlPlan", "true"}, "="))
+	}
+
 	// hostpath type for kubeconf file and /var/libe/apiserver-ha
 	hostPathType := v1.HostPathDirectoryOrCreate
 	volMap := make(map[string]v1.Volume)
@@ -155,20 +161,7 @@ func ApiserverHaServiceUrl(controlPlaneEndpointIPAndPort string) string {
 	return fmt.Sprintf("https://%s", controlPlaneEndpointIPAndPort)
 }
 
-func GetApiserverHaControlPlan(serviceSubnet string, featureGates map[string]bool) (string, error) {
-	// Get the service subnet CIDR
-	/*svcSubnetCIDR, err := constants.GetKubernetesServiceCIDR(serviceSubnet,
-		features.Enabled(featureGates, features.IPv6DualStack))
-	if err != nil {
-		return "", errors.Wrapf(err, "unable to get internal Kubernetes Service IP from the given service CIDR (%s)", serviceSubnet)
-	}
-
-	// Selects the 10th IP in service subnet CIDR range as dnsIP
-	ip, err := utilnet.GetIndexedIP(svcSubnetCIDR, 1)
-	if err != nil {
-		return "", errors.Wrap(err, "unable to get internal Kubernetes Service IP from the given service CIDR")
-	}
-	return net.JoinHostPort(ip.String(), "443"), nil*/
+func GetApiserverHaControlPlan() (string, error) {
 	return "127.0.0.1:8443", nil
 }
 
@@ -240,7 +233,7 @@ func RunProxyContainer(apiserver, img string) error {
 		os.MkdirAll(ApiserverHaConfigFileHostPath, 0755)
 	}
 
-	out, err := utilsexec.New().Command("docker", "run", "-d", "--name", "apiserverha",
+	out, err := utilsexec.New().Command("docker", "run", "-d", "--name", "apiserverha", "--rm",
 		"--network", "host", "-v", fmt.Sprintf("%s:%s", ApiserverHaConfigFileHostPath,
 			ApiserverHAProxyConfigContainerPath), img, "--apiServer", apiserver).CombinedOutput()
 	if err != nil {

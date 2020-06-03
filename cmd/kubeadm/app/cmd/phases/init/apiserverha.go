@@ -140,7 +140,7 @@ func RunApiserverHaPhase(c workflow.RunData) error {
 	}
 
 	err = pash.BuildApiserverHaNode(data.Cfg().ClusterName, data.Cfg().ControlPlaneEndpoint, apiserverRealEndpoint,
-		data.Cfg().ClusterConfiguration.ApiserverHA.Image, remoteLoader)
+		data.Cfg().ClusterConfiguration.ApiserverHA.Image, remoteLoader, true)
 	err = craeteApiserverHaUserRoleAndBinding(client)
 	if err != nil {
 		return errors.Errorf("create apiserverhs node fails, %v", err)
