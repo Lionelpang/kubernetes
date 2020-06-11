@@ -25,7 +25,7 @@ import (
 	"sync"
 	"time"
 
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -230,7 +230,7 @@ func (ca *cloudCIDRAllocator) AllocateOrOccupyCIDR(node *v1.Node) error {
 		return nil
 	}
 	if !ca.insertNodeToProcessing(node.Name) {
-		klog.V(2).Infof("Node %v is already in a process of CIDR assignment.", node.Name)
+		klog.V(2).InfoS("Node is already in a process of CIDR assignment", "node", klog.KObj(node))
 		return nil
 	}
 

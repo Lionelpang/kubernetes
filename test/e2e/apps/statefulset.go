@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/onsi/ginkgo"
@@ -30,7 +31,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	klabels "k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -588,6 +588,30 @@ var _ = SIGDescribe("StatefulSet", func() {
 			})
 			framework.ExpectNoError(err)
 
+			// Verify that statuful set will be scaled up in order.
+			wg := sync.WaitGroup{}
+			var orderErr error
+			wg.Add(1)
+			go func() {
+				defer ginkgo.GinkgoRecover()
+				defer wg.Done()
+
+				expectedOrder := []string{ssName + "-0", ssName + "-1", ssName + "-2"}
+				ctx, cancel := watchtools.ContextWithOptionalTimeout(context.Background(), statefulSetTimeout)
+				defer cancel()
+
+				_, orderErr = watchtools.Until(ctx, pl.ResourceVersion, w, func(event watch.Event) (bool, error) {
+					if event.Type != watch.Added {
+						return false, nil
+					}
+					pod := event.Object.(*v1.Pod)
+					if pod.Name == expectedOrder[0] {
+						expectedOrder = expectedOrder[1:]
+					}
+					return len(expectedOrder) == 0, nil
+				})
+			}()
+
 			ginkgo.By("Creating stateful set " + ssName + " in namespace " + ns)
 			ss := e2estatefulset.NewStatefulSet(ssName, ns, headlessSvcName, 1, nil, nil, psLabels)
 			setHTTPProbe(ss)
@@ -609,27 +633,36 @@ var _ = SIGDescribe("StatefulSet", func() {
 			e2estatefulset.WaitForRunningAndReady(c, 3, ss)
 
 			ginkgo.By("Verifying that stateful set " + ssName + " was scaled up in order")
-			expectedOrder := []string{ssName + "-0", ssName + "-1", ssName + "-2"}
-			ctx, cancel := watchtools.ContextWithOptionalTimeout(context.Background(), statefulSetTimeout)
-			defer cancel()
-			_, err = watchtools.Until(ctx, pl.ResourceVersion, w, func(event watch.Event) (bool, error) {
-				if event.Type != watch.Added {
-					return false, nil
-				}
-				pod := event.Object.(*v1.Pod)
-				if pod.Name == expectedOrder[0] {
-					expectedOrder = expectedOrder[1:]
-				}
-				return len(expectedOrder) == 0, nil
-
-			})
-			framework.ExpectNoError(err)
+			wg.Wait()
+			framework.ExpectNoError(orderErr)
 
 			ginkgo.By("Scale down will halt with unhealthy stateful pod")
 			pl, err = f.ClientSet.CoreV1().Pods(ns).List(context.TODO(), metav1.ListOptions{
 				LabelSelector: psLabels.AsSelector().String(),
 			})
 			framework.ExpectNoError(err)
+
+			// Verify that statuful set will be scaled down in order.
+			wg.Add(1)
+			go func() {
+				defer ginkgo.GinkgoRecover()
+				defer wg.Done()
+
+				expectedOrder := []string{ssName + "-2", ssName + "-1", ssName + "-0"}
+				ctx, cancel := watchtools.ContextWithOptionalTimeout(context.Background(), statefulSetTimeout)
+				defer cancel()
+
+				_, orderErr = watchtools.Until(ctx, pl.ResourceVersion, w, func(event watch.Event) (bool, error) {
+					if event.Type != watch.Deleted {
+						return false, nil
+					}
+					pod := event.Object.(*v1.Pod)
+					if pod.Name == expectedOrder[0] {
+						expectedOrder = expectedOrder[1:]
+					}
+					return len(expectedOrder) == 0, nil
+				})
+			}()
 
 			breakHTTPProbe(c, ss)
 			e2estatefulset.WaitForStatusReadyReplicas(c, ss, 0)
@@ -642,21 +675,8 @@ var _ = SIGDescribe("StatefulSet", func() {
 			e2estatefulset.Scale(c, ss, 0)
 
 			ginkgo.By("Verifying that stateful set " + ssName + " was scaled down in reverse order")
-			expectedOrder = []string{ssName + "-2", ssName + "-1", ssName + "-0"}
-			ctx, cancel = watchtools.ContextWithOptionalTimeout(context.Background(), statefulSetTimeout)
-			defer cancel()
-			_, err = watchtools.Until(ctx, pl.ResourceVersion, w, func(event watch.Event) (bool, error) {
-				if event.Type != watch.Deleted {
-					return false, nil
-				}
-				pod := event.Object.(*v1.Pod)
-				if pod.Name == expectedOrder[0] {
-					expectedOrder = expectedOrder[1:]
-				}
-				return len(expectedOrder) == 0, nil
-
-			})
-			framework.ExpectNoError(err)
+			wg.Wait()
+			framework.ExpectNoError(orderErr)
 		})
 
 		/*
@@ -748,12 +768,20 @@ var _ = SIGDescribe("StatefulSet", func() {
 
 			var initialStatefulPodUID types.UID
 			ginkgo.By("Waiting until stateful pod " + statefulPodName + " will be recreated and deleted at least once in namespace " + f.Namespace.Name)
+
 			fieldSelector := fields.OneTermEqualSelector("metadata.name", statefulPodName).String()
+			pl, err := f.ClientSet.CoreV1().Pods(ns).List(context.TODO(), metav1.ListOptions{
+				FieldSelector: fieldSelector,
+			})
+			framework.ExpectNoError(err)
+			if len(pl.Items) > 0 {
+				pod := pl.Items[0]
+				framework.Logf("Observed stateful pod in namespace: %v, name: %v, uid: %v, status phase: %v. Waiting for statefulset controller to delete.",
+					pod.Namespace, pod.Name, pod.UID, pod.Status.Phase)
+				initialStatefulPodUID = pod.UID
+			}
+
 			lw := &cache.ListWatch{
-				ListFunc: func(options metav1.ListOptions) (object runtime.Object, e error) {
-					options.FieldSelector = fieldSelector
-					return f.ClientSet.CoreV1().Pods(f.Namespace.Name).List(context.TODO(), options)
-				},
 				WatchFunc: func(options metav1.ListOptions) (i watch.Interface, e error) {
 					options.FieldSelector = fieldSelector
 					return f.ClientSet.CoreV1().Pods(f.Namespace.Name).Watch(context.TODO(), options)
@@ -762,7 +790,7 @@ var _ = SIGDescribe("StatefulSet", func() {
 			ctx, cancel := watchtools.ContextWithOptionalTimeout(context.Background(), statefulPodTimeout)
 			defer cancel()
 			// we need to get UID from pod in any state and wait until stateful set controller will remove pod at least once
-			_, err = watchtools.ListWatchUntil(ctx, lw, func(event watch.Event) (bool, error) {
+			_, err = watchtools.Until(ctx, pl.ResourceVersion, lw, func(event watch.Event) (bool, error) {
 				pod := event.Object.(*v1.Pod)
 				switch event.Type {
 				case watch.Deleted:

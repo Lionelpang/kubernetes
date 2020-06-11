@@ -13,7 +13,6 @@ go_test(
         "extender_test.go",
         "framework_test.go",
         "main_test.go",
-        "plugins_test.go",
         "predicates_test.go",
         "preemption_test.go",
         "priorities_test.go",
@@ -61,7 +60,7 @@ go_test(
         "//test/utils:go_default_library",
         "//test/utils/image:go_default_library",
         "//vendor/github.com/google/go-cmp/cmp:go_default_library",
-        "//vendor/k8s.io/klog:go_default_library",
+        "//vendor/k8s.io/klog/v2:go_default_library",
     ],
 )
 

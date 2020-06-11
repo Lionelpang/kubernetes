@@ -57,11 +57,11 @@ type KubeSchedulerConfiguration struct {
 
 	// AlgorithmSource specifies the scheduler algorithm source.
 	// TODO(#87526): Remove AlgorithmSource from this package
-	// DEPRECATED: AlgorithmSource is removed in the v1alpha2 ComponentConfig
+	// DEPRECATED: AlgorithmSource is removed in the v1beta1 ComponentConfig
 	AlgorithmSource SchedulerAlgorithmSource
 
 	// LeaderElection defines the configuration of leader election client.
-	LeaderElection KubeSchedulerLeaderElectionConfiguration
+	LeaderElection componentbaseconfig.LeaderElectionConfiguration
 
 	// ClientConnection specifies the kubeconfig file and client connection
 	// settings for the proxy server to use when communicating with the apiserver.
@@ -89,11 +89,6 @@ type KubeSchedulerConfiguration struct {
 	// When the value is 0, default percentage (5%--50% based on the size of the cluster) of the
 	// nodes will be scored.
 	PercentageOfNodesToScore int32
-
-	// Duration to wait for a binding operation to complete before timing out
-	// Value must be non-negative integer. The value zero indicates no waiting.
-	// If this value is nil, the default value will be used.
-	BindTimeoutSeconds int64
 
 	// PodInitialBackoffSeconds is the initial backoff for unschedulable pods.
 	// If specified, it must be greater than 0. If this value is null, the default value (1s)
@@ -173,12 +168,6 @@ type SchedulerPolicyConfigMapSource struct {
 	Name string
 }
 
-// KubeSchedulerLeaderElectionConfiguration expands LeaderElectionConfiguration
-// to include scheduler specific configuration.
-type KubeSchedulerLeaderElectionConfiguration struct {
-	componentbaseconfig.LeaderElectionConfiguration
-}
-
 // Plugins include multiple extension points. When specified, the list of plugins for
 // a particular extension point are the only ones enabled. If an extension point is
 // omitted from the config, then the default set of plugins is used for that extension point.
@@ -193,6 +182,9 @@ type Plugins struct {
 
 	// Filter is a list of plugins that should be invoked when filtering out nodes that cannot run the Pod.
 	Filter *PluginSet
+
+	// PostFilter is a list of plugins that are invoked after filtering phase, no matter whether filtering succeeds or not.
+	PostFilter *PluginSet
 
 	// PreScore is a list of plugins that are invoked before scoring.
 	PreScore *PluginSet
@@ -288,6 +280,7 @@ func (p *Plugins) Append(src *Plugins) {
 	p.QueueSort = appendPluginSet(p.QueueSort, src.QueueSort)
 	p.PreFilter = appendPluginSet(p.PreFilter, src.PreFilter)
 	p.Filter = appendPluginSet(p.Filter, src.Filter)
+	p.PostFilter = appendPluginSet(p.PostFilter, src.PostFilter)
 	p.PreScore = appendPluginSet(p.PreScore, src.PreScore)
 	p.Score = appendPluginSet(p.Score, src.Score)
 	p.Reserve = appendPluginSet(p.Reserve, src.Reserve)
@@ -307,6 +300,7 @@ func (p *Plugins) Apply(customPlugins *Plugins) {
 	p.QueueSort = mergePluginSets(p.QueueSort, customPlugins.QueueSort)
 	p.PreFilter = mergePluginSets(p.PreFilter, customPlugins.PreFilter)
 	p.Filter = mergePluginSets(p.Filter, customPlugins.Filter)
+	p.PostFilter = mergePluginSets(p.PostFilter, customPlugins.PostFilter)
 	p.PreScore = mergePluginSets(p.PreScore, customPlugins.PreScore)
 	p.Score = mergePluginSets(p.Score, customPlugins.Score)
 	p.Reserve = mergePluginSets(p.Reserve, customPlugins.Reserve)

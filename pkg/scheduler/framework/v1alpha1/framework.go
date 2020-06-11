@@ -28,9 +28,11 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
-	"k8s.io/klog"
-	"k8s.io/kubernetes/pkg/controller/volume/scheduling"
+	"k8s.io/client-go/tools/events"
+	"k8s.io/klog/v2"
+	"k8s.io/kube-scheduler/config/v1beta1"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
+	"k8s.io/kubernetes/pkg/scheduler/apis/config/scheme"
 	"k8s.io/kubernetes/pkg/scheduler/internal/parallelize"
 	"k8s.io/kubernetes/pkg/scheduler/metrics"
 )
@@ -43,6 +45,7 @@ const (
 	preFilter                                 = "PreFilter"
 	preFilterExtensionAddPod                  = "PreFilterExtensionAddPod"
 	preFilterExtensionRemovePod               = "PreFilterExtensionRemovePod"
+	postFilter                                = "PostFilter"
 	preScore                                  = "PreScore"
 	score                                     = "Score"
 	scoreExtensionNormalize                   = "ScoreExtensionNormalize"
@@ -54,6 +57,8 @@ const (
 	permit                                    = "Permit"
 )
 
+var configDecoder = scheme.Codecs.UniversalDecoder()
+
 // framework is the component responsible for initializing and running scheduler
 // plugins.
 type framework struct {
@@ -64,6 +69,7 @@ type framework struct {
 	queueSortPlugins      []QueueSortPlugin
 	preFilterPlugins      []PreFilterPlugin
 	filterPlugins         []FilterPlugin
+	postFilterPlugins     []PostFilterPlugin
 	preScorePlugins       []PreScorePlugin
 	scorePlugins          []ScorePlugin
 	reservePlugins        []ReservePlugin
@@ -74,10 +80,12 @@ type framework struct {
 	permitPlugins         []PermitPlugin
 
 	clientSet       clientset.Interface
+	eventRecorder   events.EventRecorder
 	informerFactory informers.SharedInformerFactory
-	volumeBinder    scheduling.SchedulerVolumeBinder
 
 	metricsRecorder *metricsRecorder
+
+	preemptHandle PreemptHandle
 
 	// Indicates that RunFilterPlugins should accumulate all failed statuses and not return
 	// after the first failure.
@@ -99,6 +107,7 @@ func (f *framework) getExtensionPoints(plugins *config.Plugins) []extensionPoint
 	return []extensionPoint{
 		{plugins.PreFilter, &f.preFilterPlugins},
 		{plugins.Filter, &f.filterPlugins},
+		{plugins.PostFilter, &f.postFilterPlugins},
 		{plugins.Reserve, &f.reservePlugins},
 		{plugins.PreScore, &f.preScorePlugins},
 		{plugins.Score, &f.scorePlugins},
@@ -113,10 +122,12 @@ func (f *framework) getExtensionPoints(plugins *config.Plugins) []extensionPoint
 
 type frameworkOptions struct {
 	clientSet            clientset.Interface
+	eventRecorder        events.EventRecorder
 	informerFactory      informers.SharedInformerFactory
 	snapshotSharedLister SharedLister
 	metricsRecorder      *metricsRecorder
-	volumeBinder         scheduling.SchedulerVolumeBinder
+	podNominator         PodNominator
+	extenders            []Extender
 	runAllFilters        bool
 }
 
@@ -127,6 +138,13 @@ type Option func(*frameworkOptions)
 func WithClientSet(clientSet clientset.Interface) Option {
 	return func(o *frameworkOptions) {
 		o.clientSet = clientSet
+	}
+}
+
+// WithEventRecorder sets clientSet for the scheduling framework.
+func WithEventRecorder(recorder events.EventRecorder) Option {
+	return func(o *frameworkOptions) {
+		o.eventRecorder = recorder
 	}
 }
 
@@ -159,15 +177,36 @@ func withMetricsRecorder(recorder *metricsRecorder) Option {
 	}
 }
 
-// WithVolumeBinder sets volume binder for the scheduling framework.
-func WithVolumeBinder(binder scheduling.SchedulerVolumeBinder) Option {
+// WithPodNominator sets podNominator for the scheduling framework.
+func WithPodNominator(nominator PodNominator) Option {
 	return func(o *frameworkOptions) {
-		o.volumeBinder = binder
+		o.podNominator = nominator
+	}
+}
+
+// WithExtenders sets extenders for the scheduling framework.
+func WithExtenders(extenders []Extender) Option {
+	return func(o *frameworkOptions) {
+		o.extenders = extenders
 	}
 }
 
 var defaultFrameworkOptions = frameworkOptions{
 	metricsRecorder: newMetricsRecorder(1000, time.Second),
+}
+
+// TODO(#91029): move this to framework runtime package.
+var _ PreemptHandle = &preemptHandle{}
+
+type preemptHandle struct {
+	extenders []Extender
+	PodNominator
+	PluginsRunner
+}
+
+// Extenders returns the registered extenders.
+func (ph *preemptHandle) Extenders() []Extender {
+	return ph.extenders
 }
 
 var _ Framework = &framework{}
@@ -185,10 +224,15 @@ func NewFramework(r Registry, plugins *config.Plugins, args []config.PluginConfi
 		pluginNameToWeightMap: make(map[string]int),
 		waitingPods:           newWaitingPodsMap(),
 		clientSet:             options.clientSet,
+		eventRecorder:         options.eventRecorder,
 		informerFactory:       options.informerFactory,
-		volumeBinder:          options.volumeBinder,
 		metricsRecorder:       options.metricsRecorder,
 		runAllFilters:         options.runAllFilters,
+	}
+	f.preemptHandle = &preemptHandle{
+		extenders:     options.extenders,
+		PodNominator:  options.podNominator,
+		PluginsRunner: f,
 	}
 	if plugins == nil {
 		return f, nil
@@ -197,7 +241,7 @@ func NewFramework(r Registry, plugins *config.Plugins, args []config.PluginConfi
 	// get needed plugins from config
 	pg := f.pluginsNeeded(plugins)
 
-	pluginConfig := make(map[string]runtime.Object, 0)
+	pluginConfig := make(map[string]runtime.Object, len(args))
 	for i := range args {
 		name := args[i].Name
 		if _, ok := pluginConfig[name]; ok {
@@ -214,7 +258,11 @@ func NewFramework(r Registry, plugins *config.Plugins, args []config.PluginConfi
 			continue
 		}
 
-		p, err := factory(pluginConfig[name], f)
+		args, err := getPluginArgsOrDefault(pluginConfig, name)
+		if err != nil {
+			return nil, fmt.Errorf("getting args for Plugin %q: %w", name, err)
+		}
+		p, err := factory(args, f)
 		if err != nil {
 			return nil, fmt.Errorf("error initializing plugin %q: %v", name, err)
 		}
@@ -258,6 +306,25 @@ func NewFramework(r Registry, plugins *config.Plugins, args []config.PluginConfi
 	}
 
 	return f, nil
+}
+
+// getPluginArgsOrDefault returns a configuration provided by the user or builds
+// a default from the scheme. Returns `nil, nil` if the plugin does not have a
+// defined arg types, such as in-tree plugins that don't require configuration
+// or out-of-tree plugins.
+func getPluginArgsOrDefault(pluginConfig map[string]runtime.Object, name string) (runtime.Object, error) {
+	res, ok := pluginConfig[name]
+	if ok {
+		return res, nil
+	}
+	// Use defaults from latest config API version.
+	gvk := v1beta1.SchemeGroupVersion.WithKind(name + "Args")
+	obj, _, err := configDecoder.Decode(nil, &gvk, nil)
+	if runtime.IsNotRegisteredError(err) {
+		// This plugin is out-of-tree or doesn't require configuration.
+		return nil, nil
+	}
+	return obj, err
 }
 
 func updatePluginList(pluginList interface{}, pluginSet *config.PluginSet, pluginsMap map[string]Plugin) error {
@@ -453,6 +520,33 @@ func (f *framework) runFilterPlugin(ctx context.Context, pl FilterPlugin, state 
 	status := pl.Filter(ctx, state, pod, nodeInfo)
 	f.metricsRecorder.observePluginDurationAsync(Filter, pl.Name(), status, metrics.SinceInSeconds(startTime))
 	return status
+}
+
+// RunPostFilterPlugins runs the set of configured PostFilter plugins until the first
+// Success or Error is met, otherwise continues to execute all plugins.
+func (f *framework) RunPostFilterPlugins(ctx context.Context, state *CycleState, pod *v1.Pod, filteredNodeStatusMap NodeToStatusMap) (*PostFilterResult, *Status) {
+	statuses := make(PluginToStatus)
+	for _, pl := range f.postFilterPlugins {
+		r, s := f.runPostFilterPlugin(ctx, pl, state, pod, filteredNodeStatusMap)
+		if s.IsSuccess() {
+			return r, s
+		} else if !s.IsUnschedulable() {
+			// Any status other than Success or Unschedulable is Error.
+			return nil, NewStatus(Error, s.Message())
+		}
+		statuses[pl.Name()] = s
+	}
+	return nil, statuses.Merge()
+}
+
+func (f *framework) runPostFilterPlugin(ctx context.Context, pl PostFilterPlugin, state *CycleState, pod *v1.Pod, filteredNodeStatusMap NodeToStatusMap) (*PostFilterResult, *Status) {
+	if !state.ShouldRecordPluginMetrics() {
+		return pl.PostFilter(ctx, state, pod, filteredNodeStatusMap)
+	}
+	startTime := time.Now()
+	r, s := pl.PostFilter(ctx, state, pod, filteredNodeStatusMap)
+	f.metricsRecorder.observePluginDurationAsync(postFilter, pl.Name(), s, metrics.SinceInSeconds(startTime))
+	return r, s
 }
 
 // RunPreScorePlugins runs the set of configured pre-score plugins. If any
@@ -847,7 +941,7 @@ func (f *framework) HasScorePlugins() bool {
 }
 
 // ListPlugins returns a map of extension point name to plugin names configured at each extension
-// point. Returns nil if no plugins where configred.
+// point. Returns nil if no plugins where configured.
 func (f *framework) ListPlugins() map[string][]config.Plugin {
 	m := make(map[string][]config.Plugin)
 
@@ -879,14 +973,14 @@ func (f *framework) ClientSet() clientset.Interface {
 	return f.clientSet
 }
 
+// EventRecorder returns an event recorder.
+func (f *framework) EventRecorder() events.EventRecorder {
+	return f.eventRecorder
+}
+
 // SharedInformerFactory returns a shared informer factory.
 func (f *framework) SharedInformerFactory() informers.SharedInformerFactory {
 	return f.informerFactory
-}
-
-// VolumeBinder returns the volume binder used by scheduler.
-func (f *framework) VolumeBinder() scheduling.SchedulerVolumeBinder {
-	return f.volumeBinder
 }
 
 func (f *framework) pluginsNeeded(plugins *config.Plugins) map[string]config.Plugin {
@@ -908,4 +1002,9 @@ func (f *framework) pluginsNeeded(plugins *config.Plugins) map[string]config.Plu
 		find(e.plugins)
 	}
 	return pgMap
+}
+
+// PreemptHandle returns the internal preemptHandle object.
+func (f *framework) PreemptHandle() PreemptHandle {
+	return f.preemptHandle
 }

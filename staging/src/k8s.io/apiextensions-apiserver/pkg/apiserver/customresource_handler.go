@@ -81,7 +81,7 @@ import (
 	"k8s.io/client-go/scale"
 	"k8s.io/client-go/scale/scheme/autoscalingv1"
 	"k8s.io/client-go/tools/cache"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	"k8s.io/kube-openapi/pkg/util/proto"
 )
 
@@ -1018,7 +1018,7 @@ func (t CRDRESTOptionsGetter) GetRESTOptions(resource schema.GroupResource) (gen
 		CountMetricPollPeriod:   t.CountMetricPollPeriod,
 	}
 	if t.EnableWatchCache {
-		ret.Decorator = genericregistry.StorageWithCacher(t.DefaultWatchCacheSize)
+		ret.Decorator = genericregistry.StorageWithCacher()
 	}
 	return ret, nil
 }

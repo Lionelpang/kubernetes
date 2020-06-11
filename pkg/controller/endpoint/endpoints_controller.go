@@ -41,7 +41,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/metrics/prometheus/ratelimiter"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/api/v1/endpoints"
 	podutil "k8s.io/kubernetes/pkg/api/v1/pod"
 	api "k8s.io/kubernetes/pkg/apis/core"
@@ -337,8 +337,13 @@ func (e *EndpointController) handleErr(err error, key interface{}) {
 		return
 	}
 
+	ns, name, keyErr := cache.SplitMetaNamespaceKey(key.(string))
+	if keyErr != nil {
+		klog.ErrorS(err, "Failed to split meta namespace cache key", "key", key)
+	}
+
 	if e.queue.NumRequeues(key) < maxRetries {
-		klog.V(2).Infof("Error syncing endpoints for service %q, retrying. Error: %v", key, err)
+		klog.V(2).InfoS("Error syncing endpoints, retrying", "service", klog.KRef(ns, name), "err", err)
 		e.queue.AddRateLimited(key)
 		return
 	}

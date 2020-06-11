@@ -27,7 +27,7 @@ import (
 	"time"
 
 	"github.com/spf13/pflag"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
@@ -195,9 +195,6 @@ func (e *E2EServices) startKubelet() (*server, error) {
 		cmdArgs = append(cmdArgs,
 			systemdRun,
 			"-p", "Delegate=true",
-			"-p", "CPUAccounting=true",
-			"-p", "MemoryAccounting=true",
-			"-p", "TasksAccounting=true",
 			"--unit="+unitName,
 			"--slice=runtime.slice",
 			"--remain-after-exit",

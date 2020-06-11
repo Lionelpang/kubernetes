@@ -29,7 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
-	"k8s.io/kubernetes/pkg/controller/volume/scheduling"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 )
 
@@ -274,6 +274,23 @@ type FilterPlugin interface {
 	Filter(ctx context.Context, state *CycleState, pod *v1.Pod, nodeInfo *NodeInfo) *Status
 }
 
+// PostFilterPlugin is an interface for PostFilter plugins. These plugins are called
+// after a pod cannot be scheduled.
+type PostFilterPlugin interface {
+	Plugin
+	// PostFilter is called by the scheduling framework.
+	// A PostFilter plugin should return one of the following statuses:
+	// - Unschedulable: the plugin gets executed successfully but the pod cannot be made schedulable.
+	// - Success: the plugin gets executed successfully and the pod can be made schedulable.
+	// - Error: the plugin aborts due to some internal error.
+	//
+	// Informational plugins should be configured ahead of other ones, and always return Unschedulable status.
+	// Optionally, a non-nil PostFilterResult may be returned along with a Success status. For example,
+	// a preemption plugin may choose to return nominatedNodeName, so that framework can reuse that to update the
+	// preemptor pod's .spec.status.nominatedNodeName field.
+	PostFilter(ctx context.Context, state *CycleState, pod *v1.Pod, filteredNodeStatusMap NodeToStatusMap) (*PostFilterResult, *Status)
+}
+
 // PreScorePlugin is an interface for Pre-score plugin. Pre-score is an
 // informational extension point. Plugins will be called with a list of nodes
 // that passed the filtering phase. A plugin may use this data to update internal
@@ -399,6 +416,12 @@ type Framework interface {
 	// schedule the target pod.
 	RunFilterPlugins(ctx context.Context, state *CycleState, pod *v1.Pod, nodeInfo *NodeInfo) PluginToStatus
 
+	// RunPostFilterPlugins runs the set of configured PostFilter plugins.
+	// PostFilter plugins can either be informational, in which case should be configured
+	// to execute first and return Unschedulable status, or ones that try to change the
+	// cluster state to make the pod potentially schedulable in a future scheduling cycle.
+	RunPostFilterPlugins(ctx context.Context, state *CycleState, pod *v1.Pod, filteredNodeStatusMap NodeToStatusMap) (*PostFilterResult, *Status)
+
 	// RunPreFilterExtensionAddPod calls the AddPod interface for the set of configured
 	// PreFilter plugins. It returns directly if any of the plugins return any
 	// status other than Success.
@@ -490,8 +513,51 @@ type FrameworkHandle interface {
 	// ClientSet returns a kubernetes clientSet.
 	ClientSet() clientset.Interface
 
+	// EventRecorder returns an event recorder.
+	EventRecorder() events.EventRecorder
+
 	SharedInformerFactory() informers.SharedInformerFactory
 
-	// VolumeBinder returns the volume binder used by scheduler.
-	VolumeBinder() scheduling.SchedulerVolumeBinder
+	// TODO: unroll the wrapped interfaces to FrameworkHandle.
+	PreemptHandle() PreemptHandle
+}
+
+// PostFilterResult wraps needed info for scheduler framework to act upon PostFilter phase.
+type PostFilterResult struct {
+	NominatedNodeName string
+}
+
+// PreemptHandle incorporates all needed logic to run preemption logic.
+type PreemptHandle interface {
+	// PodNominator abstracts operations to maintain nominated Pods.
+	PodNominator
+	// PluginsRunner abstracts operations to run some plugins.
+	PluginsRunner
+	// Extenders returns registered scheduler extenders.
+	Extenders() []Extender
+}
+
+// PodNominator abstracts operations to maintain nominated Pods.
+type PodNominator interface {
+	// AddNominatedPod adds the given pod to the nominated pod map or
+	// updates it if it already exists.
+	AddNominatedPod(pod *v1.Pod, nodeName string)
+	// DeleteNominatedPodIfExists deletes nominatedPod from internal cache. It's a no-op if it doesn't exist.
+	DeleteNominatedPodIfExists(pod *v1.Pod)
+	// UpdateNominatedPod updates the <oldPod> with <newPod>.
+	UpdateNominatedPod(oldPod, newPod *v1.Pod)
+	// NominatedPodsForNode returns nominatedPods on the given node.
+	NominatedPodsForNode(nodeName string) []*v1.Pod
+}
+
+// PluginsRunner abstracts operations to run some plugins.
+// This is used by preemption PostFilter plugins when evaluating the feasibility of
+// scheduling the pod on nodes when certain running pods get evicted.
+type PluginsRunner interface {
+	// RunFilterPlugins runs the set of configured filter plugins for pod on the given node.
+	RunFilterPlugins(context.Context, *CycleState, *v1.Pod, *NodeInfo) PluginToStatus
+	// RunPreFilterExtensionAddPod calls the AddPod interface for the set of configured PreFilter plugins.
+	RunPreFilterExtensionAddPod(ctx context.Context, state *CycleState, podToSchedule *v1.Pod, podToAdd *v1.Pod, nodeInfo *NodeInfo) *Status
+	// RunPreFilterExtensionRemovePod calls the RemovePod interface for the set of configured PreFilter plugins.
+	RunPreFilterExtensionRemovePod(ctx context.Context, state *CycleState, podToSchedule *v1.Pod, podToRemove *v1.Pod, nodeInfo *NodeInfo) *Status
 }

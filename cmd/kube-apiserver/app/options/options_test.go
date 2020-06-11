@@ -30,7 +30,6 @@ import (
 	apiserveroptions "k8s.io/apiserver/pkg/server/options"
 	"k8s.io/apiserver/pkg/storage/storagebackend"
 	auditbuffered "k8s.io/apiserver/plugin/pkg/audit/buffered"
-	auditdynamic "k8s.io/apiserver/plugin/pkg/audit/dynamic"
 	audittruncate "k8s.io/apiserver/plugin/pkg/audit/truncate"
 	restclient "k8s.io/client-go/rest"
 	cliflag "k8s.io/component-base/cli/flag"
@@ -106,7 +105,6 @@ func TestAddFlags(t *testing.T) {
 		"--etcd-certfile=/var/run/kubernetes/etcdce.crt",
 		"--etcd-cafile=/var/run/kubernetes/etcdca.crt",
 		"--http2-max-streams-per-connection=42",
-		"--kubelet-https=true",
 		"--kubelet-read-only-port=10255",
 		"--kubelet-timeout=5s",
 		"--kubelet-client-certificate=/var/run/kubernetes/ceserver.crt",
@@ -193,7 +191,6 @@ func TestAddFlags(t *testing.T) {
 				string(kapi.NodeExternalDNS),
 				string(kapi.NodeExternalIP),
 			},
-			EnableHTTPS: true,
 			HTTPTimeout: time.Duration(5) * time.Second,
 			TLSClientConfig: restclient.TLSClientConfig{
 				CertFile: "/var/run/kubernetes/ceserver.crt",
@@ -251,9 +248,6 @@ func TestAddFlags(t *testing.T) {
 				},
 				InitialBackoff:     2 * time.Second,
 				GroupVersionString: "audit.k8s.io/v1alpha1",
-			},
-			DynamicOptions: apiserveroptions.AuditDynamicOptions{
-				BatchConfig: auditdynamic.NewDefaultWebhookBatchConfig(),
 			},
 			PolicyFile: "/policy",
 		},

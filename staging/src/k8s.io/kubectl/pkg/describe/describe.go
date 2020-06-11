@@ -67,7 +67,7 @@ import (
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/reference"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	"k8s.io/kubectl/pkg/scheme"
 	"k8s.io/kubectl/pkg/util/certificate"
 	deploymentutil "k8s.io/kubectl/pkg/util/deployment"
@@ -3038,15 +3038,6 @@ func (d *NodeDescriber) Describe(namespace, name string, describerSettings Descr
 		return "", err
 	}
 
-	lease, err := d.CoordinationV1().Leases(corev1.NamespaceNodeLease).Get(context.TODO(), name, metav1.GetOptions{})
-	if err != nil {
-		if !errors.IsNotFound(err) {
-			return "", err
-		}
-		// Corresponding Lease object doesn't exist - print it accordingly.
-		lease = nil
-	}
-
 	fieldSelector, err := fields.ParseSelector("spec.nodeName=" + name + ",status.phase!=" + string(corev1.PodSucceeded) + ",status.phase!=" + string(corev1.PodFailed))
 	if err != nil {
 		return "", err
@@ -3073,10 +3064,15 @@ func (d *NodeDescriber) Describe(namespace, name string, describerSettings Descr
 		}
 	}
 
-	return describeNode(node, lease, nodeNonTerminatedPodsList, events, canViewPods)
+	return describeNode(node, nodeNonTerminatedPodsList, events, canViewPods, &LeaseDescriber{d})
 }
 
-func describeNode(node *corev1.Node, lease *coordinationv1.Lease, nodeNonTerminatedPodsList *corev1.PodList, events *corev1.EventList, canViewPods bool) (string, error) {
+type LeaseDescriber struct {
+	client clientset.Interface
+}
+
+func describeNode(node *corev1.Node, nodeNonTerminatedPodsList *corev1.PodList, events *corev1.EventList,
+	canViewPods bool, ld *LeaseDescriber) (string, error) {
 	return tabbedString(func(out io.Writer) error {
 		w := NewPrefixWriter(out)
 		w.Write(LEVEL_0, "Name:\t%s\n", node.Name)
@@ -3091,22 +3087,13 @@ func describeNode(node *corev1.Node, lease *coordinationv1.Lease, nodeNonTermina
 		printNodeTaintsMultiline(w, "Taints", node.Spec.Taints)
 		w.Write(LEVEL_0, "Unschedulable:\t%v\n", node.Spec.Unschedulable)
 
-		w.Write(LEVEL_0, "Lease:\n")
-		holderIdentity := "<unset>"
-		if lease != nil && lease.Spec.HolderIdentity != nil {
-			holderIdentity = *lease.Spec.HolderIdentity
+		if ld != nil {
+			if lease, err := ld.client.CoordinationV1().Leases(corev1.NamespaceNodeLease).Get(context.TODO(), node.Name, metav1.GetOptions{}); err == nil {
+				describeNodeLease(lease, w)
+			} else {
+				w.Write(LEVEL_0, "Lease:\tFailed to get lease: %s\n", err)
+			}
 		}
-		w.Write(LEVEL_1, "HolderIdentity:\t%s\n", holderIdentity)
-		acquireTime := "<unset>"
-		if lease != nil && lease.Spec.AcquireTime != nil {
-			acquireTime = lease.Spec.AcquireTime.Time.Format(time.RFC1123Z)
-		}
-		w.Write(LEVEL_1, "AcquireTime:\t%s\n", acquireTime)
-		renewTime := "<unset>"
-		if lease != nil && lease.Spec.RenewTime != nil {
-			renewTime = lease.Spec.RenewTime.Time.Format(time.RFC1123Z)
-		}
-		w.Write(LEVEL_1, "RenewTime:\t%s\n", renewTime)
 
 		if len(node.Status.Conditions) > 0 {
 			w.Write(LEVEL_0, "Conditions:\n  Type\tStatus\tLastHeartbeatTime\tLastTransitionTime\tReason\tMessage\n")
@@ -3183,6 +3170,25 @@ func describeNode(node *corev1.Node, lease *coordinationv1.Lease, nodeNonTermina
 	})
 }
 
+func describeNodeLease(lease *coordinationv1.Lease, w PrefixWriter) {
+	w.Write(LEVEL_0, "Lease:\n")
+	holderIdentity := "<unset>"
+	if lease != nil && lease.Spec.HolderIdentity != nil {
+		holderIdentity = *lease.Spec.HolderIdentity
+	}
+	w.Write(LEVEL_1, "HolderIdentity:\t%s\n", holderIdentity)
+	acquireTime := "<unset>"
+	if lease != nil && lease.Spec.AcquireTime != nil {
+		acquireTime = lease.Spec.AcquireTime.Time.Format(time.RFC1123Z)
+	}
+	w.Write(LEVEL_1, "AcquireTime:\t%s\n", acquireTime)
+	renewTime := "<unset>"
+	if lease != nil && lease.Spec.RenewTime != nil {
+		renewTime = lease.Spec.RenewTime.Time.Format(time.RFC1123Z)
+	}
+	w.Write(LEVEL_1, "RenewTime:\t%s\n", renewTime)
+}
+
 type StatefulSetDescriber struct {
 	client clientset.Interface
 }
@@ -3246,29 +3252,57 @@ type CertificateSigningRequestDescriber struct {
 }
 
 func (p *CertificateSigningRequestDescriber) Describe(namespace, name string, describerSettings DescriberSettings) (string, error) {
-	csr, err := p.client.CertificatesV1beta1().CertificateSigningRequests().Get(context.TODO(), name, metav1.GetOptions{})
-	if err != nil {
+
+	var (
+		crBytes    []byte
+		metadata   metav1.ObjectMeta
+		status     string
+		signerName string
+		username   string
+		events     *corev1.EventList
+	)
+
+	if csr, err := p.client.CertificatesV1().CertificateSigningRequests().Get(context.TODO(), name, metav1.GetOptions{}); err == nil {
+		crBytes = csr.Spec.Request
+		metadata = csr.ObjectMeta
+		conditionTypes := []string{}
+		for _, c := range csr.Status.Conditions {
+			conditionTypes = append(conditionTypes, string(c.Type))
+		}
+		status = extractCSRStatus(conditionTypes, csr.Status.Certificate)
+		signerName = csr.Spec.SignerName
+		username = csr.Spec.Username
+		if describerSettings.ShowEvents {
+			events, _ = p.client.CoreV1().Events(namespace).Search(scheme.Scheme, csr)
+		}
+	} else if csr, err := p.client.CertificatesV1beta1().CertificateSigningRequests().Get(context.TODO(), name, metav1.GetOptions{}); err == nil {
+		crBytes = csr.Spec.Request
+		metadata = csr.ObjectMeta
+		conditionTypes := []string{}
+		for _, c := range csr.Status.Conditions {
+			conditionTypes = append(conditionTypes, string(c.Type))
+		}
+		status = extractCSRStatus(conditionTypes, csr.Status.Certificate)
+		if csr.Spec.SignerName != nil {
+			signerName = *csr.Spec.SignerName
+		}
+		username = csr.Spec.Username
+		if describerSettings.ShowEvents {
+			events, _ = p.client.CoreV1().Events(namespace).Search(scheme.Scheme, csr)
+		}
+	} else {
 		return "", err
 	}
 
-	cr, err := certificate.ParseCSR(csr)
+	cr, err := certificate.ParseCSR(crBytes)
 	if err != nil {
 		return "", fmt.Errorf("Error parsing CSR: %v", err)
 	}
-	status, err := extractCSRStatus(csr)
-	if err != nil {
-		return "", err
-	}
 
-	var events *corev1.EventList
-	if describerSettings.ShowEvents {
-		events, _ = p.client.CoreV1().Events(namespace).Search(scheme.Scheme, csr)
-	}
-
-	return describeCertificateSigningRequest(csr, cr, status, events)
+	return describeCertificateSigningRequest(metadata, signerName, username, cr, status, events)
 }
 
-func describeCertificateSigningRequest(csr *certificatesv1beta1.CertificateSigningRequest, cr *x509.CertificateRequest, status string, events *corev1.EventList) (string, error) {
+func describeCertificateSigningRequest(csr metav1.ObjectMeta, signerName string, username string, cr *x509.CertificateRequest, status string, events *corev1.EventList) (string, error) {
 	printListHelper := func(w PrefixWriter, prefix, name string, values []string) {
 		if len(values) == 0 {
 			return
@@ -3284,9 +3318,9 @@ func describeCertificateSigningRequest(csr *certificatesv1beta1.CertificateSigni
 		w.Write(LEVEL_0, "Labels:\t%s\n", labels.FormatLabels(csr.Labels))
 		w.Write(LEVEL_0, "Annotations:\t%s\n", labels.FormatLabels(csr.Annotations))
 		w.Write(LEVEL_0, "CreationTimestamp:\t%s\n", csr.CreationTimestamp.Time.Format(time.RFC1123Z))
-		w.Write(LEVEL_0, "Requesting User:\t%s\n", csr.Spec.Username)
-		if csr.Spec.SignerName != nil {
-			w.Write(LEVEL_0, "Signer:\t%s\n", *csr.Spec.SignerName)
+		w.Write(LEVEL_0, "Requesting User:\t%s\n", username)
+		if len(signerName) > 0 {
+			w.Write(LEVEL_0, "Signer:\t%s\n", signerName)
 		}
 		w.Write(LEVEL_0, "Status:\t%s\n", status)
 
@@ -4606,6 +4640,17 @@ func printTolerationsMultilineWithIndent(w PrefixWriter, initialIndent, title, i
 		if len(toleration.Effect) != 0 {
 			w.Write(LEVEL_0, ":%s", toleration.Effect)
 		}
+		// tolerations:
+		// - operator: "Exists"
+		// is a special case which tolerates everything
+		if toleration.Operator == corev1.TolerationOpExists && len(toleration.Value) == 0 {
+			if len(toleration.Key) != 0 {
+				w.Write(LEVEL_0, " op=Exists")
+			} else {
+				w.Write(LEVEL_0, "op=Exists")
+			}
+		}
+
 		if toleration.TolerationSeconds != nil {
 			w.Write(LEVEL_0, " for %ds", *toleration.TolerationSeconds)
 		}
@@ -4705,11 +4750,6 @@ var maxAnnotationLen = 140
 func printAnnotationsMultiline(w PrefixWriter, title string, annotations map[string]string) {
 	w.Write(LEVEL_0, "%s:\t", title)
 
-	if len(annotations) == 0 {
-		w.WriteLine("<none>")
-		return
-	}
-
 	// to print labels in the sorted order
 	keys := make([]string, 0, len(annotations))
 	for key := range annotations {
@@ -4718,7 +4758,7 @@ func printAnnotationsMultiline(w PrefixWriter, title string, annotations map[str
 		}
 		keys = append(keys, key)
 	}
-	if len(annotations) == 0 {
+	if len(keys) == 0 {
 		w.WriteLine("<none>")
 		return
 	}
@@ -4826,20 +4866,20 @@ func formatEndpoints(endpoints *corev1.Endpoints, ports sets.String) string {
 	return ret
 }
 
-func extractCSRStatus(csr *certificatesv1beta1.CertificateSigningRequest) (string, error) {
-	var approved, denied bool
-	for _, c := range csr.Status.Conditions {
-		switch c.Type {
-		case certificatesv1beta1.CertificateApproved:
+func extractCSRStatus(conditions []string, certificateBytes []byte) string {
+	var approved, denied, failed bool
+	for _, c := range conditions {
+		switch c {
+		case string(certificatesv1beta1.CertificateApproved):
 			approved = true
-		case certificatesv1beta1.CertificateDenied:
+		case string(certificatesv1beta1.CertificateDenied):
 			denied = true
-		default:
-			return "", fmt.Errorf("unknown csr condition %q", c)
+		case string(certificatesv1beta1.CertificateFailed):
+			failed = true
 		}
 	}
 	var status string
-	// must be in order of presidence
+	// must be in order of precedence
 	if denied {
 		status += "Denied"
 	} else if approved {
@@ -4847,10 +4887,13 @@ func extractCSRStatus(csr *certificatesv1beta1.CertificateSigningRequest) (strin
 	} else {
 		status += "Pending"
 	}
-	if len(csr.Status.Certificate) > 0 {
+	if failed {
+		status += ",Failed"
+	}
+	if len(certificateBytes) > 0 {
 		status += ",Issued"
 	}
-	return status, nil
+	return status
 }
 
 // backendStringer behaves just like a string interface and converts the given backend to a string.

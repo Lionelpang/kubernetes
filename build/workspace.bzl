@@ -17,25 +17,25 @@ load("//build:workspace_mirror.bzl", "mirror")
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_file")
 load("@io_bazel_rules_docker//container:container.bzl", "container_pull")
 
-CNI_VERSION = "0.8.5"
+CNI_VERSION = "0.8.6"
 _CNI_TARBALL_ARCH_SHA256 = {
-    "amd64": "bd682ffcf701e8f83283cdff7281aad0c83b02a56084d6e601216210732833f9",
-    "arm": "86a868234045837cb3f5d58a0a4468ff42845d50b5e87bd128f050ef393d7495",
-    "arm64": "a7881ec37e592c897bdfd2a225b4ed74caa981e3c4cdcf8f45574f8d2f111bce",
-    "ppc64le": "a26cc3734f7cb980ab8fb3aaa64ccf2d67291478130009fa9542355fbdd94aa5",
-    "s390x": "033ea910a83144609083d5c3fb62bf4a379b0b17729a1a9e829feed9fa7a9d97",
+    "amd64": "994fbfcdbb2eedcfa87e48d8edb9bb365f4e2747a7e47658482556c12fd9b2f5",
+    "arm": "28e61b5847265135dc1ca397bf94322ecce4acab5c79cc7d360ca3f6a655bdb7",
+    "arm64": "43fbf750c5eccb10accffeeb092693c32b236fb25d919cf058c91a677822c999",
+    "ppc64le": "61d6c6c15d3e4fa3eb85d128c9c0ff2658f38e59047ae359be47d193c673e116",
+    "s390x": "ca126a3bd2cd8dff1c7bbfc3c69933b284c4e77614391c7e1f74b0851fc3b289",
 }
 
-CRI_TOOLS_VERSION = "1.17.0"
+CRI_TOOLS_VERSION = "1.18.0"
 _CRI_TARBALL_ARCH_SHA256 = {
-    "linux-386": "cffa443cf76ab4b760a68d4db555d1854cb692e8b20b3360cf23221815ca151e",
-    "linux-amd64": "7b72073797f638f099ed19550d52e9b9067672523fc51b746e65d7aa0bafa414",
-    "linux-arm": "9700957218e8e7bdc02cbc8fda4c189f5b6223a93ba89d876bdfd77b6117e9b7",
-    "linux-arm64": "d89afd89c2852509fafeaff6534d456272360fcee732a8d0cb89476377387e12",
-    "linux-ppc64le": "a61c52b9ac5bffe94ae4c09763083c60f3eccd30eb351017b310f32d1cafb855",
-    "linux-s390x": "0db445f0b74ecb51708b710480a462b728174155c5f2709a39d1cc2dc975e350",
-    "windows-386": "2e285250d36b5cb3e8c047b191c0c0af606fed7c0034bb140ba95cc1498f4996",
-    "windows-amd64": "e18150d5546d3ddf6b165bd9aec0f65c18aacf75b94fb28bb26bfc0238f07b28",
+    "linux-386": "a1aaf482928d0a19aabeb321e406333c5ddecf77a532f7ec8c0bd6ca7014101e",
+    "linux-amd64": "876dd2b3d0d1c2590371f940fb1bf1fbd5f15aebfbe456703ee465d959700f4a",
+    "linux-arm": "d420925d10b47a234b7e51e9cf1039c3c09f2703945a99435549fcdd7487ae3a",
+    "linux-arm64": "95ba32c47ad690b1e3e24f60255273dd7d176e62b1a0b482e5b44a7c31639979",
+    "linux-ppc64le": "53a1fedbcee37f5d6c9480d21a9bb17f1c0214ffe7b640e39231a59927a665ef",
+    "linux-s390x": "114c8885a7eeb43bbe19baaf23c04a5761d06330ba8e7aa39a3a15c2051221f1",
+    "windows-386": "f37e8b5c499fb5a2bd06668782a7dc34e5acf2fda6d1bfe8f0ea9c773359a378",
+    "windows-amd64": "5045bcc6d8b0e6004be123ab99ea06e5b1b2ae1e586c968fcdf85fccd4d67ae1",
 }
 
 ETCD_VERSION = "3.4.7"
@@ -50,7 +50,7 @@ _ETCD_TARBALL_ARCH_SHA256 = {
 def release_dependencies():
     cni_tarballs()
     cri_tarballs()
-    debian_image_dependencies()
+    image_dependencies()
     etcd_tarballs()
 
 def cni_tarballs():
@@ -99,14 +99,37 @@ _DEBIAN_IPTABLES_DIGEST = {
     "s390x": "sha256:1b91a2788750552913377bf1bc99a095544dfb523d80a55674003c974c8e0905",
 }
 
+# Use skopeo to find these values: https://github.com/containers/skopeo
+#
+# Example
+# Manifest: skopeo inspect docker://gcr.io/k8s-staging-build-image/go-runner:v0.1.1
+# Arches: skopeo inspect --raw docker://gcr.io/k8s-staging-build-image/go-runner:v0.1.1
+_GO_RUNNER_DIGEST = {
+    "manifest": "sha256:4892faa2de0533bc1af72b9b233936f21a9e7362063345d170de1a8f464f2ad8",
+    "amd64": "sha256:821e48a96d46aa53d2f7f5ef9d9093ed69979957a0a7092d1c09c44d81028a9d",
+    "arm": "sha256:2cc042179887b6baa0792e156b53f4cb94181b1a99153790402bd8e517e8cf56",
+    "arm64": "sha256:00ca7f34275349330a5d8ddffd15e2980fe5b2cbdd410f063f4e7617e0e71c29",
+    "ppc64le": "sha256:3e25e0d0e9d17033f3e86d4af5787c7fc5f1173e174d77eebdc14df1a06f1c99",
+    "s390x": "sha256:3e34e290cd35a90285991a575e2e79fddfb161c66f13bc5662a1cc0a4ade32e0",
+}
+
 def _digest(d, arch):
     if arch not in d:
         print("WARNING: %s not found in %r" % (arch, d))
         return d["manifest"]
     return d[arch]
 
-def debian_image_dependencies():
+def image_dependencies():
     for arch in SERVER_PLATFORMS["linux"]:
+        container_pull(
+            name = "go-runner-linux-" + arch,
+            architecture = arch,
+            digest = _digest(_GO_RUNNER_DIGEST, arch),
+            registry = "us.gcr.io/k8s-artifacts-prod/build-image",
+            repository = "go-runner",
+            tag = "v0.1.1",  # ignored, but kept here for documentation
+        )
+
         container_pull(
             name = "debian-base-" + arch,
             architecture = arch,

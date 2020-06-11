@@ -244,6 +244,9 @@
     Query for the Pod with the new value for the label MUST be successful.
   release: v1.9
   file: test/e2e/common/pods.go
+  behaviors:
+  - pod/spec/label/create
+  - pod/spec/label/patch
 - testname: Pods, service environment variables
   codename: '[k8s.io] Pods should contain environment variables for services [NodeConformance]
     [Conformance]'
@@ -482,6 +485,8 @@
     have QOSClass set to PodQOSGuaranteed.
   release: v1.9
   file: test/e2e/node/pods.go
+  behaviors:
+  - pod/spec/container/resources
 - testname: Pods, prestop hook
   codename: '[k8s.io] [sig-node] PreStop should call prestop when killing a pod  [Conformance]'
   description: Create a server pod with a rest endpoint '/write' that changes state.Received
@@ -1296,6 +1301,27 @@
     StorageClass or a dynamic provisioner.
   release: v1.9
   file: test/e2e/apps/statefulset.go
+- testname: CertificateSigningRequest API
+  codename: '[sig-auth] Certificates API [Privileged:ClusterAdmin] should support
+    CSR API operations [Conformance]'
+  description: ' The certificates.k8s.io API group MUST exists in the /apis discovery
+    document. The certificates.k8s.io/v1 API group/version MUST exist in the /apis/certificates.k8s.io
+    discovery document. The certificatesigningrequests, certificatesigningrequests/approval,
+    and certificatesigningrequests/status resources MUST exist in the /apis/certificates.k8s.io/v1
+    discovery document. The certificatesigningrequests resource must support create,
+    get, list, watch, update, patch, delete, and deletecollection. The certificatesigningrequests/approval
+    resource must support get, update, patch. The certificatesigningrequests/status
+    resource must support get, update, patch.'
+  release: v1.19
+  file: test/e2e/auth/certificates.go
+- testname: CertificateSigningRequest API Client Certificate
+  codename: '[sig-auth] Certificates API [Privileged:ClusterAdmin] should support
+    building a client with a CSR [Conformance]'
+  description: ' The certificatesigningrequests resource must accept a request for
+    a certificate signed by kubernetes.io/kube-apiserver-client. The issued certificate
+    must be valid as a client certificate used to authenticate to the kube-apiserver.'
+  release: v1.19
+  file: test/e2e/auth/certificates.go
 - testname: Service account tokens auto mount optionally
   codename: '[sig-auth] ServiceAccounts should allow opting out of API token automount  [Conformance]'
   description: Ensure that Service Account keys are mounted into the Pod only when
@@ -1324,6 +1350,15 @@
     files MUST exist and the Service Account mount path MUST be auto mounted to the
     Container.
   release: v1.9
+  file: test/e2e/auth/service_accounts.go
+- testname: ServiceAccount lifecycle test
+  codename: '[sig-auth] ServiceAccounts should run through the lifecycle of a ServiceAccount
+    [Conformance]'
+  description: Creates a ServiceAccount with a static Label MUST be added as shown
+    in watch event. Patching the ServiceAccount MUST return it's new property. Listing
+    the ServiceAccounts MUST return the test ServiceAccount with it's patched values.
+    ServiceAccount will be deleted and MUST find a deleted watch event.
+  release: v1.19
   file: test/e2e/auth/service_accounts.go
 - testname: Kubectl, guestbook application
   codename: '[sig-cli] Kubectl client Guestbook application should create and stop
@@ -1358,6 +1393,14 @@
     expected. Kubectl describe on rc, service, node and namespace SHOULD also return
     proper information.
   release: v1.9
+  file: test/e2e/kubectl/kubectl.go
+- testname: Kubectl, diff Deployment
+  codename: '[sig-cli] Kubectl client Kubectl diff should check if kubectl diff finds
+    a difference for Deployments [Conformance]'
+  description: Create a Deployment with httpd image. Declare the same Deployment with
+    a different image, busybox. Diff of live Deployment with declared Deployment MUST
+    include the difference between live and declared image.
+  release: v1.19
   file: test/e2e/kubectl/kubectl.go
 - testname: Kubectl, create service, replication controller
   codename: '[sig-cli] Kubectl client Kubectl expose should create services for rc  [Conformance]'
@@ -1415,6 +1458,15 @@
     in the run command. After the run command there SHOULD be a pod that should exist
     with one container running the specified image.
   release: v1.9
+  file: test/e2e/kubectl/kubectl.go
+- testname: Kubectl, server-side dry-run Pod
+  codename: '[sig-cli] Kubectl client Kubectl server-side dry-run should check if
+    kubectl can dry-run update Pods [Conformance]'
+  description: The command 'kubectl run' must create a pod with the specified image
+    name. After, the command 'kubectl replace --dry-run=server' should update the
+    Pod with the new image name and server-side dry-run enabled. The image name must
+    not change.
+  release: v1.19
   file: test/e2e/kubectl/kubectl.go
 - testname: Kubectl, version
   codename: '[sig-cli] Kubectl client Kubectl version should check is all data is
@@ -1888,6 +1940,22 @@
     number of Replicas.
   release: v1.19
   file: test/e2e/scheduling/preemption.go
+- testname: Scheduler, Basic Preemption
+  codename: '[sig-scheduling] SchedulerPreemption [Serial] validates basic preemption
+    works [Conformance]'
+  description: When a higher priority pod is created and no node with enough resources
+    is found, the scheduler MUST preempt a lower priority pod and schedule the high
+    priority pod.
+  release: v1.19
+  file: test/e2e/scheduling/preemption.go
+- testname: Scheduler, Preemption for critical pod
+  codename: '[sig-scheduling] SchedulerPreemption [Serial] validates lower priority
+    pod preemption by critical pod [Conformance]'
+  description: When a critical pod is created and no node with enough resources is
+    found, the scheduler MUST preempt a lower priority pod to schedule the critical
+    pod.
+  release: v1.19
+  file: test/e2e/scheduling/preemption.go
 - testname: ConfigMap Volume, text data, binary data
   codename: '[sig-storage] ConfigMap binary data should be reflected in volume [NodeConformance]
     [Conformance]'
@@ -2245,15 +2313,6 @@
     able to start with Secret and ConfigMap volumes mounted into the container.
   release: v1.13
   file: test/e2e/storage/empty_dir_wrapper.go
-- testname: Host path, volume mode default
-  codename: '[sig-storage] HostPath should give a volume the correct mode [LinuxOnly]
-    [NodeConformance] [Conformance]'
-  description: Create a Pod with host volume mounted. The volume mounted MUST be a
-    directory with permissions mode -rwxrwxrwx and that is has the sticky bit (mode
-    flag t) set. This test is marked LinuxOnly since Windows does not support setting
-    the sticky bit (mode flag t).
-  release: v1.9
-  file: test/e2e/common/host_path.go
 - testname: Projected Volume, multiple projections
   codename: '[sig-storage] Projected combined should project all components that make
     up the projection API [Projection][NodeConformance] [Conformance]'

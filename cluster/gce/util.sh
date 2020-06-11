@@ -1346,6 +1346,7 @@ ETCD_CA_CERT: $(yaml-quote ${ETCD_CA_CERT_BASE64:-})
 ETCD_PEER_KEY: $(yaml-quote ${ETCD_PEER_KEY_BASE64:-})
 ETCD_PEER_CERT: $(yaml-quote ${ETCD_PEER_CERT_BASE64:-})
 SERVICEACCOUNT_ISSUER: $(yaml-quote ${SERVICEACCOUNT_ISSUER:-})
+KUBECTL_PRUNE_WHITELIST_OVERRIDE: $(yaml-quote ${KUBECTL_PRUNE_WHITELIST_OVERRIDE:-})
 EOF
     # KUBE_APISERVER_REQUEST_TIMEOUT_SEC (if set) controls the --request-timeout
     # flag
@@ -3382,7 +3383,7 @@ function check-cluster() {
   local start_time=$(date +%s)
   local curl_out=$(mktemp)
   kube::util::trap_add "rm -f ${curl_out}" EXIT
-  until curl --cacert "${CERT_DIR}/pki/ca.crt" \
+  until curl -vsS --cacert "${CERT_DIR}/pki/ca.crt" \
           -H "Authorization: Bearer ${KUBE_BEARER_TOKEN}" \
           ${secure} \
           --max-time 5 --fail \

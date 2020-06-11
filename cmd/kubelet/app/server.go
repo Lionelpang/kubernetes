@@ -22,9 +22,9 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -35,7 +35,7 @@ import (
 	"github.com/coreos/go-systemd/daemon"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/mount"
 
 	v1 "k8s.io/api/core/v1"
@@ -50,7 +50,6 @@ import (
 	"k8s.io/apiserver/pkg/server/healthz"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	clientset "k8s.io/client-go/kubernetes"
-	certificatesclient "k8s.io/client-go/kubernetes/typed/certificates/v1beta1"
 	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -60,10 +59,12 @@ import (
 	"k8s.io/client-go/util/connrotation"
 	"k8s.io/client-go/util/keyutil"
 	cloudprovider "k8s.io/cloud-provider"
+	"k8s.io/component-base/cli/flag"
 	cliflag "k8s.io/component-base/cli/flag"
 	"k8s.io/component-base/configz"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics"
+	"k8s.io/component-base/metrics/legacyregistry"
 	"k8s.io/component-base/version"
 	"k8s.io/component-base/version/verflag"
 	kubeletconfigv1beta1 "k8s.io/kubelet/config/v1beta1"
@@ -84,14 +85,12 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/cm/cpuset"
 	"k8s.io/kubernetes/pkg/kubelet/config"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
-	"k8s.io/kubernetes/pkg/kubelet/dockershim"
-	dockerremote "k8s.io/kubernetes/pkg/kubelet/dockershim/remote"
 	"k8s.io/kubernetes/pkg/kubelet/eviction"
 	evictionapi "k8s.io/kubernetes/pkg/kubelet/eviction/api"
 	dynamickubeletconfig "k8s.io/kubernetes/pkg/kubelet/kubeletconfig"
 	"k8s.io/kubernetes/pkg/kubelet/kubeletconfig/configfiles"
+	kubeletmetrics "k8s.io/kubernetes/pkg/kubelet/metrics"
 	"k8s.io/kubernetes/pkg/kubelet/server"
-	"k8s.io/kubernetes/pkg/kubelet/server/streaming"
 	"k8s.io/kubernetes/pkg/kubelet/stats/pidlimit"
 	kubetypes "k8s.io/kubernetes/pkg/kubelet/types"
 	utilfs "k8s.io/kubernetes/pkg/util/filesystem"
@@ -259,14 +258,6 @@ HTTP server: The kubelet can also listen for HTTP and respond to a simple API
 			// set up stopCh here in order to be reused by kubelet and docker shim
 			stopCh := genericapiserver.SetupSignalHandler()
 
-			// start the experimental docker shim, if enabled
-			if kubeletServer.KubeletFlags.ExperimentalDockershim {
-				if err := RunDockershim(&kubeletServer.KubeletFlags, kubeletConfig, stopCh); err != nil {
-					klog.Fatal(err)
-				}
-				return
-			}
-
 			// run the kubelet
 			klog.V(5).Infof("KubeletConfiguration: %#v", kubeletServer.KubeletConfiguration)
 			if err := Run(kubeletServer, kubeletDeps, utilfeature.DefaultFeatureGate, stopCh); err != nil {
@@ -375,9 +366,9 @@ func UnsecuredDependencies(s *options.KubeletServer, featureGate featuregate.Fea
 	hu := hostutil.NewHostUtil()
 	var pluginRunner = exec.New()
 
-	var dockerClientConfig *dockershim.ClientConfig
+	var dockerOptions *kubelet.DockerOptions
 	if s.ContainerRuntime == kubetypes.DockerContainerRuntime {
-		dockerClientConfig = &dockershim.ClientConfig{
+		dockerOptions = &kubelet.DockerOptions{
 			DockerEndpoint:            s.DockerEndpoint,
 			RuntimeRequestTimeout:     s.RuntimeRequestTimeout.Duration,
 			ImagePullProgressDeadline: s.ImagePullProgressDeadline.Duration,
@@ -393,7 +384,7 @@ func UnsecuredDependencies(s *options.KubeletServer, featureGate featuregate.Fea
 		CAdvisorInterface:   nil, // cadvisor.New launches background processes (bg http.ListenAndServe, and some bg cleaners), not set here
 		Cloud:               nil, // cloud provider might start background processes
 		ContainerManager:    nil,
-		DockerClientConfig:  dockerClientConfig,
+		DockerOptions:       dockerOptions,
 		KubeClient:          nil,
 		HeartbeatClient:     nil,
 		EventClient:         nil,
@@ -532,9 +523,7 @@ func run(s *options.KubeletServer, kubeDeps *kubelet.Dependencies, featureGate f
 			if err != nil {
 				return err
 			}
-			if cloud == nil {
-				klog.V(2).Infof("No cloud provider specified: %q from the config file: %q\n", s.CloudProvider, s.CloudConfigFile)
-			} else {
+			if cloud != nil {
 				klog.V(2).Infof("Successfully initialized cloud provider: %q from the config file: %q\n", s.CloudProvider, s.CloudConfigFile)
 			}
 			kubeDeps.Cloud = cloud
@@ -816,7 +805,7 @@ func run(s *options.KubeletServer, kubeDeps *kubelet.Dependencies, featureGate f
 // buildKubeletClientConfig constructs the appropriate client config for the kubelet depending on whether
 // bootstrapping is enabled or client certificate rotation is enabled.
 func buildKubeletClientConfig(s *options.KubeletServer, nodeName types.NodeName) (*restclient.Config, func(), error) {
-	if s.RotateCertificates && utilfeature.DefaultFeatureGate.Enabled(features.RotateKubeletClientCertificate) {
+	if s.RotateCertificates {
 		// Rules for client rotation and the handling of kube config files:
 		//
 		// 1. If the client provides only a kubeconfig file, we must use that as the initial client
@@ -849,6 +838,23 @@ func buildKubeletClientConfig(s *options.KubeletServer, nodeName types.NodeName)
 		if err != nil {
 			return nil, nil, err
 		}
+
+		legacyregistry.RawMustRegister(metrics.NewGaugeFunc(
+			metrics.GaugeOpts{
+				Subsystem: kubeletmetrics.KubeletSubsystem,
+				Name:      "certificate_manager_client_ttl_seconds",
+				Help: "Gauge of the TTL (time-to-live) of the Kubelet's client certificate. " +
+					"The value is in seconds until certificate expiry (negative if already expired). " +
+					"If client certificate is invalid or unused, the value will be +INF.",
+				StabilityLevel: metrics.ALPHA,
+			},
+			func() float64 {
+				if c := clientCertificateManager.Current(); c != nil && c.Leaf != nil {
+					return math.Trunc(c.Leaf.NotAfter.Sub(time.Now()).Seconds())
+				}
+				return math.Inf(1)
+			},
+		))
 
 		// the rotating transport will use the cert from the cert manager instead of these files
 		transportConfig := restclient.AnonymousClientConfig(clientConfig)
@@ -903,7 +909,7 @@ func updateDialer(clientConfig *restclient.Config) (func(), error) {
 // if no certificate is available, or the most recent clientConfig (which is assumed to point to the cert that the manager will
 // write out).
 func buildClientCertificateManager(certConfig, clientConfig *restclient.Config, certDir string, nodeName types.NodeName) (certificate.Manager, error) {
-	newClientFn := func(current *tls.Certificate) (certificatesclient.CertificateSigningRequestInterface, error) {
+	newClientsetFn := func(current *tls.Certificate) (clientset.Interface, error) {
 		// If we have a valid certificate, use that to fetch CSRs. Otherwise use the bootstrap
 		// credentials. In the future it would be desirable to change the behavior of bootstrap
 		// to always fall back to the external bootstrap credentials when such credentials are
@@ -912,11 +918,7 @@ func buildClientCertificateManager(certConfig, clientConfig *restclient.Config, 
 		if current != nil {
 			config = clientConfig
 		}
-		client, err := clientset.NewForConfig(config)
-		if err != nil {
-			return nil, err
-		}
-		return client.CertificatesV1beta1().CertificateSigningRequests(), nil
+		return clientset.NewForConfig(config)
 	}
 
 	return kubeletcertificate.NewKubeletClientCertificateManager(
@@ -931,7 +933,7 @@ func buildClientCertificateManager(certConfig, clientConfig *restclient.Config, 
 
 		clientConfig.CertFile,
 		clientConfig.KeyFile,
-		newClientFn,
+		newClientsetFn,
 	)
 }
 
@@ -1000,6 +1002,17 @@ func InitializeTLS(kf *options.KubeletFlags, kc *kubeletconfiginternal.KubeletCo
 	tlsCipherSuites, err := cliflag.TLSCipherSuites(kc.TLSCipherSuites)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(tlsCipherSuites) > 0 {
+		insecureCiphers := flag.InsecureTLSCiphers()
+		for i := 0; i < len(tlsCipherSuites); i++ {
+			for cipherName, cipherID := range insecureCiphers {
+				if tlsCipherSuites[i] == cipherID {
+					klog.Warningf("Use of insecure cipher '%s' detected.", cipherName)
+				}
+			}
+		}
 	}
 
 	minTLSVersion, err := cliflag.TLSVersion(kc.TLSMinVersion)
@@ -1270,52 +1283,4 @@ func BootstrapKubeletConfigController(dynamicConfigDir string, transform dynamic
 		return nil, nil, fmt.Errorf("failed to determine a valid configuration, error: %v", err)
 	}
 	return kc, c, nil
-}
-
-// RunDockershim only starts the dockershim in current process. This is only used for cri validate testing purpose
-// TODO(random-liu): Move this to a separate binary.
-func RunDockershim(f *options.KubeletFlags, c *kubeletconfiginternal.KubeletConfiguration, stopCh <-chan struct{}) error {
-	r := &f.ContainerRuntimeOptions
-
-	// Initialize docker client configuration.
-	dockerClientConfig := &dockershim.ClientConfig{
-		DockerEndpoint:            r.DockerEndpoint,
-		RuntimeRequestTimeout:     c.RuntimeRequestTimeout.Duration,
-		ImagePullProgressDeadline: r.ImagePullProgressDeadline.Duration,
-	}
-
-	// Initialize network plugin settings.
-	pluginSettings := dockershim.NetworkPluginSettings{
-		HairpinMode:        kubeletconfiginternal.HairpinMode(c.HairpinMode),
-		NonMasqueradeCIDR:  f.NonMasqueradeCIDR,
-		PluginName:         r.NetworkPluginName,
-		PluginConfDir:      r.CNIConfDir,
-		PluginBinDirString: r.CNIBinDir,
-		PluginCacheDir:     r.CNICacheDir,
-		MTU:                int(r.NetworkPluginMTU),
-	}
-
-	// Initialize streaming configuration. (Not using TLS now)
-	streamingConfig := &streaming.Config{
-		// Use a relative redirect (no scheme or host).
-		BaseURL:                         &url.URL{Path: "/cri/"},
-		StreamIdleTimeout:               c.StreamingConnectionIdleTimeout.Duration,
-		StreamCreationTimeout:           streaming.DefaultConfig.StreamCreationTimeout,
-		SupportedRemoteCommandProtocols: streaming.DefaultConfig.SupportedRemoteCommandProtocols,
-		SupportedPortForwardProtocols:   streaming.DefaultConfig.SupportedPortForwardProtocols,
-	}
-
-	// Standalone dockershim will always start the local streaming server.
-	ds, err := dockershim.NewDockerService(dockerClientConfig, r.PodSandboxImage, streamingConfig, &pluginSettings,
-		f.RuntimeCgroups, c.CgroupDriver, r.DockershimRootDirectory, true /*startLocalStreamingServer*/)
-	if err != nil {
-		return err
-	}
-	klog.V(2).Infof("Starting the GRPC server for the docker CRI shim.")
-	server := dockerremote.NewDockerServer(f.RemoteRuntimeEndpoint, ds)
-	if err := server.Start(); err != nil {
-		return err
-	}
-	<-stopCh
-	return nil
 }

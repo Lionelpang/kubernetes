@@ -74,6 +74,9 @@ const (
 type KubeletConfiguration struct {
 	metav1.TypeMeta
 
+	// enableServer enables Kubelet's secured server.
+	// Note: Kubelet's insecure port is controlled by the readOnlyPort option.
+	EnableServer bool
 	// staticPodPath is the path to the directory containing local (static) pods to
 	// run, or the path to a single static pod file.
 	StaticPodPath string
@@ -100,6 +103,9 @@ type KubeletConfiguration struct {
 	// volumePluginDir is the full path of the directory in which to search
 	// for additional third party volume plugins.
 	VolumePluginDir string
+	// providerID, if set, sets the unique id of the instance that an external provider (i.e. cloudprovider)
+	// can use to identify a specific node
+	ProviderID string
 	// tlsCertFile is the file containing x509 Certificate for HTTPS.  (CA cert,
 	// if any, concatenated after server cert). If tlsCertFile and
 	// tlsPrivateKeyFile are not provided, a self-signed certificate
@@ -116,8 +122,7 @@ type KubeletConfiguration struct {
 	TLSMinVersion string
 	// rotateCertificates enables client certificate rotation. The Kubelet will request a
 	// new certificate from the certificates.k8s.io API. This requires an approver to approve the
-	// certificate signing requests. The RotateKubeletClientCertificate feature
-	// must be enabled.
+	// certificate signing requests.
 	RotateCertificates bool
 	// serverTLSBootstrap enables server certificate bootstrap. Instead of self
 	// signing a serving certificate, the Kubelet will request a certificate from
@@ -251,6 +256,8 @@ type KubeletConfiguration struct {
 	CPUCFSQuotaPeriod metav1.Duration
 	// maxOpenFiles is Number of files that can be opened by Kubelet process.
 	MaxOpenFiles int64
+	// nodeStatusMaxImages caps the number of images reported in Node.Status.Images.
+	NodeStatusMaxImages int32
 	// contentType is contentType of requests sent to apiserver.
 	ContentType string
 	// kubeAPIQPS is the QPS to use while talking with kubernetes apiserver
@@ -405,7 +412,7 @@ type KubeletWebhookAuthentication struct {
 	CacheTTL metav1.Duration
 }
 
-// KubeletAnonymousAuthentication enables anonymous requests to the kubetlet server.
+// KubeletAnonymousAuthentication enables anonymous requests to the kubelet server.
 type KubeletAnonymousAuthentication struct {
 	// enabled allows anonymous requests to the kubelet server.
 	// Requests that are not rejected by another authentication method are treated as anonymous requests.

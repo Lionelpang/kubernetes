@@ -25,6 +25,36 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+function convert-manifest-params {
+  # A helper function to convert the manifest args from a string to a list of
+  # flag arguments.
+  # Old format:
+  #   command=["/bin/sh", "-c", "exec KUBE_EXEC_BINARY --param1=val1 --param2-val2"].
+  # New format:
+  #   command=["KUBE_EXEC_BINARY"]  # No shell dependencies.
+  #   args=["--param1=val1", "--param2-val2"]
+  IFS=' ' read -ra FLAGS <<< "$1"
+  params=""
+  for flag in "${FLAGS[@]}"; do
+    params+="\n\"$flag\","
+  done
+  if [ ! -z $params ]; then
+    echo "${params::-1}"  #  drop trailing comma
+  fi
+}
+
+function append-param-if-not-present {
+  # A helper function to add flag to an arguments string
+  # if no such flag is present already
+  local params="$1"
+  local -r flag="$2"
+  local -r value="$3"
+  if [[ ! "${params}" =~ "--${flag}"[=\ ] ]]; then
+    params+=" --${flag}=${value}"
+  fi
+  echo "${params}"
+}
+
 function setup-os-params {
   # Reset core_pattern. On GCI, the default core_pattern pipes the core dumps to
   # /sbin/crash_reporter which is more restrictive in saving crash dumps. So for
@@ -546,6 +576,13 @@ function create-master-pki {
     SERVICEACCOUNT_KEY="${MASTER_KEY}"
   fi
 
+  if [[ -n "${OLD_MASTER_CERT:-}" && -n "${OLD_MASTER_KEY:-}" ]]; then
+    OLD_MASTER_CERT_PATH="${pki_dir}/oldapiserver.crt"
+    echo "${OLD_MASTER_CERT}" | base64 --decode > "${OLD_MASTER_CERT_PATH}"
+    OLD_MASTER_KEY_PATH="${pki_dir}/oldapiserver.key"
+    echo "${OLD_MASTER_KEY}" | base64 --decode > "${OLD_MASTER_KEY_PATH}"
+  fi
+
   SERVICEACCOUNT_CERT_PATH="${pki_dir}/serviceaccount.crt"
   write-pki-data "${SERVICEACCOUNT_CERT}" "${SERVICEACCOUNT_CERT_PATH}"
 
@@ -928,7 +965,7 @@ EOF
     # If GKE exec auth for webhooks has been requested, then
     # ValidatingAdmissionWebhook should use it.  Otherwise, run with the default
     # config.
-    if [[ "${ADMISSION_CONTROL:-}" == *"ValidatingAdmissionWebhook"* && -n "${WEBHOOK_GKE_EXEC_AUTH:-}" ]]; then
+    if [[ -n "${WEBHOOK_GKE_EXEC_AUTH:-}" ]]; then
       1>&2 echo "ValidatingAdmissionWebhook requested, and WEBHOOK_GKE_EXEC_AUTH specified.  Configuring ValidatingAdmissionWebhook to use gke-exec-auth-plugin."
 
       # Append config for ValidatingAdmissionWebhook to the shared admission
@@ -1645,11 +1682,6 @@ function prepare-etcd-manifest {
   mv "${temp_file}" /etc/kubernetes/manifests
 }
 
-function start-etcd-empty-dir-cleanup-pod {
-  local -r src_file="${KUBE_HOME}/kube-manifests/kubernetes/gci-trusty/etcd-empty-dir-cleanup.yaml"
-  cp "${src_file}" "/etc/kubernetes/manifests"
-}
-
 # Starts etcd server pod (and etcd-events pod if needed).
 # More specifically, it prepares dirs and files, sets the variable value
 # in the manifests, and copies them to /etc/kubernetes/manifests.
@@ -1861,7 +1893,7 @@ function start-kube-controller-manager {
     params+=" --flex-volume-plugin-dir=${VOLUME_PLUGIN_DIR}"
   fi
   if [[ -n "${CLUSTER_SIGNING_DURATION:-}" ]]; then
-    params+=" --experimental-cluster-signing-duration=$CLUSTER_SIGNING_DURATION"
+    params+=" --cluster-signing-duration=$CLUSTER_SIGNING_DURATION"
   fi
   # Disable using HPA metrics REST clients if metrics-server isn't enabled,
   # or if we want to explicitly disable it by setting HPA_USE_REST_CLIENT.
@@ -1883,6 +1915,7 @@ function start-kube-controller-manager {
     container_env="\"env\":[{\"name\": \"KUBE_CACHE_MUTATION_DETECTOR\", \"value\": \"${ENABLE_CACHE_MUTATION_DETECTOR}\"}],"
   fi
 
+  params="$(convert-manifest-params "${params}")"
   local -r src_file="${KUBE_HOME}/kube-manifests/kubernetes/gci-trusty/kube-controller-manager.manifest"
   # Evaluate variables.
   sed -i -e "s@{{pillar\['kube_docker_registry'\]}}@${DOCKER_REGISTRY}@g" "${src_file}"
@@ -1927,6 +1960,8 @@ function start-kube-scheduler {
     params+=" --use-legacy-policy-config"
     params+=" --policy-config-file=/etc/srv/kubernetes/kube-scheduler/policy-config"
   fi
+
+  params="$(convert-manifest-params "${params}")"
   local -r kube_scheduler_docker_tag=$(cat "${KUBE_HOME}/kube-docker-files/kube-scheduler.docker_tag")
 
   # Remove salt comments and replace variables with values.
@@ -2505,6 +2540,7 @@ EOF
 
   # Place addon manager pod manifest.
   src_file="${src_dir}/kube-addon-manager.yaml"
+  sed -i -e "s@{{kubectl_prune_whitelist_override}}@${KUBECTL_PRUNE_WHITELIST_OVERRIDE:-}@g" "${src_file}"
   sed -i -e "s@{{kubectl_extra_prune_whitelist}}@${ADDON_MANAGER_PRUNE_WHITELIST:-}@g" "${src_file}"
   sed -i -e "s@{{runAsUser}}@${KUBE_ADDON_MANAGER_RUNASUSER:-2002}@g" "${src_file}"
   sed -i -e "s@{{runAsGroup}}@${KUBE_ADDON_MANAGER_RUNASGROUP:-2002}@g" "${src_file}"
@@ -2564,6 +2600,10 @@ function gke-master-start {
     echo "Running GKE internal configuration script"
     . "${KUBE_HOME}/bin/gke-internal-configure-helper.sh"
     gke-internal-master-start
+ elif [[ -n "${KUBE_BEARER_TOKEN:-}" ]]; then
+   echo "setting up local admin kubeconfig"
+   create-kubeconfig "local-admin" "${KUBE_BEARER_TOKEN}"
+   echo "export KUBECONFIG=/etc/srv/kubernetes/local-admin/kubeconfig" > /etc/profile.d/kubeconfig.sh
   fi
 }
 
@@ -2876,6 +2916,8 @@ function main() {
   if [[ "${container_runtime}" == "docker" ]]; then
     assemble-docker-flags
   elif [[ "${container_runtime}" == "containerd" ]]; then
+    # stop docker if it is present as we want to use just containerd
+    systemctl stop docker || echo "unable to stop docker"
     setup-containerd
   fi
   start-kubelet
@@ -2884,7 +2926,6 @@ function main() {
     compute-master-manifest-variables
     if [[ -z "${ETCD_SERVERS:-}" ]]; then
       start-etcd-servers
-      start-etcd-empty-dir-cleanup-pod
     fi
     source ${KUBE_BIN}/configure-kubeapiserver.sh
     start-kube-apiserver

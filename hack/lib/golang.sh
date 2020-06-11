@@ -76,6 +76,7 @@ kube::golang::server_targets() {
     cmd/kubelet
     cmd/kubeadm
     cmd/kube-scheduler
+    vendor/k8s.io/kube-aggregator
     vendor/k8s.io/apiextensions-apiserver
     cluster/gce/gci/mounter
   )
@@ -523,10 +524,6 @@ kube::golang::setup_env() {
 
   # This seems to matter to some tools
   export GO15VENDOREXPERIMENT=1
-
-  # This is for sanity.  Without it, user umasks leak through into release
-  # artifacts.
-  umask 0022
 }
 
 # This will take binaries from $GOPATH/bin and copy them to the appropriate
@@ -678,6 +675,9 @@ kube::golang::build_some_binaries() {
 }
 
 kube::golang::build_binaries_for_platform() {
+  # This is for sanity.  Without it, user umasks can leak through.
+  umask 0022
+
   local platform=$1
 
   local -a statics=()
